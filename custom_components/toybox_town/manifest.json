@@ -1,0 +1,13 @@
+{
+  "domain": "toybox_town",
+  "name": "Toybox Town",
+  "codeowners": ["@xjjohnson"],
+  "config_flow": true,
+  "documentation": "https://github.com/xjjohnson/toco-boca-ha/blob/main/docs/home-assistant.md",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/xjjohnson/toco-boca-ha/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

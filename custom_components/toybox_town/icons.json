@@ -1,0 +1,5 @@
+{
+  "services": {
+    "add_points": { "service": "mdi:star-plus" }
+  }
+}

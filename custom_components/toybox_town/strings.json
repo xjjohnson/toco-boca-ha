@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Toybox Town",
+        "description": "Adds a points sensor and the Toybox Town: Add points action. Points you add become stars in the Toybox Town game."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Toybox Town is already set up."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "points": { "name": "Points" }
+    }
+  },
+  "exceptions": {
+    "not_set_up": {
+      "message": "Toybox Town isn't set up yet. Add it under Settings > Devices & services."
+    }
+  },
+  "services": {
+    "add_points": {
+      "name": "Add points",
+      "description": "Give the kids points to spend as stars in Toybox Town.",
+      "fields": {
+        "amount": { "name": "Amount", "description": "How many points to give." },
+        "child": { "name": "Child", "description": "Who earned them (optional). Kept on the sensor for your own records." },
+        "reason": { "name": "Reason", "description": "What they were for (optional)." }
+      }
+    }
+  }
+}
