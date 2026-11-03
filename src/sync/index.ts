@@ -18,12 +18,17 @@ export const stubTransport = new StubTransport();
 /**
  * Where Home Assistant is. An address typed in the Grown-ups screen wins;
  * otherwise, when the game is served from Home Assistant's own www folder
- * (/local/...), it's the same address the page came from.
+ * (/local/...), it's the same address the page came from. Served from the
+ * Home Assistant add-on (its own port), Home Assistant is on the same host at
+ * its usual port, 8123.
  */
 export function haAddress(settings: Pick<Settings, 'haUrl'>): string {
   if (settings.haUrl.trim()) return settings.haUrl.trim();
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.pathname.startsWith('/local/')) {
     return window.location.origin;
+  }
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:8123`;
   }
   return '';
 }

@@ -29,9 +29,8 @@ updates with one restart. It serves the game on its own port, so there is no
    `https://github.com/xjjohnson/toco-boca-ha`.
 2. Install *Toybox Town web*, turn on *Start on boot*, and start it.
 3. Press *Open Web UI* on the add-on page, or open `http://<your Home Assistant address>:8099/` on the tablet.
-4. In the Grown-ups screen, enter your Home Assistant address (for example
-   `http://192.168.1.231:8123`) and your access token. The address doesn't fill
-   itself in here, because the game is on a different port than Home Assistant.
+4. In the Grown-ups screen, the Home Assistant address fills in as this host on port 8123 (for example
+   `http://192.168.1.231:8123`); change it if yours differs, then paste your access token.
 
 To update, restart the add-on: it downloads the newest build (the
 `toybox-town-addon-web.zip` on the Latest web app release) each time it
