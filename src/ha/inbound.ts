@@ -11,7 +11,9 @@ export type GameReaction =
   | { kind: 'visitor'; who: string }
   | { kind: 'celebrate' }
   /** A real light the toy lamp mirrors was switched in the house. */
-  | { kind: 'setLamp'; on: boolean };
+  | { kind: 'setLamp'; on: boolean }
+  /** Switch a toy in the game on or off, e.g. the radio or the fridge. */
+  | { kind: 'setToy'; id: string; on: boolean };
 
 export interface InboundContext {
   /** The light entity the toy lamp mirrors, e.g. light.play_room. */
@@ -25,6 +27,8 @@ export interface InboundContext {
  * An automation sends, for example:
  *   event: toybox_town
  *   event_data: { reaction: night }
+ * or, to switch a toy:
+ *   event_data: { reaction: toy, toy: radio, on: true }
  */
 export function reactionFor(event: HaEvent, context: InboundContext = {}): GameReaction | null {
   if (event.eventType === 'state_changed') {
@@ -34,7 +38,7 @@ export function reactionFor(event: HaEvent, context: InboundContext = {}): GameR
     return null;
   }
   if (event.eventType !== GAME_EVENT) return null;
-  const { reaction, who } = event.data;
+  const { reaction, who, toy, on } = event.data;
   switch (reaction) {
     case 'day':
     case 'night':
@@ -43,6 +47,9 @@ export function reactionFor(event: HaEvent, context: InboundContext = {}): GameR
       return { kind: 'visitor', who: typeof who === 'string' && who ? who : 'someone' };
     case 'celebrate':
       return { kind: 'celebrate' };
+    case 'toy':
+      if (typeof toy !== 'string' || !toy) return null;
+      return { kind: 'setToy', id: toy, on: on === true || on === 'on' || on === 'true' };
     default:
       return null;
   }

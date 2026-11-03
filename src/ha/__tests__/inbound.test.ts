@@ -33,3 +33,15 @@ describe('reactionFor with a lamp light', () => {
     expect(reactionFor(state('light.play_room', 'on'))).toBeNull();
   });
 });
+
+describe('reactionFor toys', () => {
+  it('switches a toy the house names', () => {
+    expect(reactionFor(ev({ reaction: 'toy', toy: 'radio', on: true }))).toEqual({ kind: 'setToy', id: 'radio', on: true });
+    expect(reactionFor(ev({ reaction: 'toy', toy: 'fridge', on: 'on' }))).toEqual({ kind: 'setToy', id: 'fridge', on: true });
+    expect(reactionFor(ev({ reaction: 'toy', toy: 'fridge' }))).toEqual({ kind: 'setToy', id: 'fridge', on: false });
+  });
+
+  it('ignores a toy event with no toy', () => {
+    expect(reactionFor(ev({ reaction: 'toy', on: true }))).toBeNull();
+  });
+});

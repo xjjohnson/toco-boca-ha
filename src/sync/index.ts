@@ -64,17 +64,38 @@ export function tellHome(action: OutboundAction, coalesceKey?: string): void {
   syncManager.notifyQueued();
 }
 
-/** The toy lamp was switched: drive the real light if one is set, else just announce it. */
-export function tellLamp(on: boolean): void {
-  const entity = useSettings.getState().lampEntity.trim();
-  // Only the newest lamp state matters, so repeated taps while offline collapse into one.
+/** The game-to-house event every toy and character action is sent as. */
+export const ACTION_EVENT = 'toybox_town_action';
+
+/**
+ * A toy was switched on or off. The lamp drives the real light chosen in the
+ * Grown-ups screen when there is one; everything else (and the lamp with no
+ * light set) fires `toybox_town_action` with { toy, id, room, on } for
+ * automations to pick up. Only the newest state of each toy matters, so taps
+ * while offline collapse into one.
+ */
+export function tellToy(toy: { id: string; kind: string; room: string }, on: boolean): void {
+  const entity = toy.id === 'lamp' ? useSettings.getState().lampEntity.trim() : '';
   if (entity) {
     const domain = entity.split('.')[0] || 'homeassistant';
     tellHome(
       { kind: 'callService', domain, service: on ? 'turn_on' : 'turn_off', data: { entity_id: entity } },
-      'lamp',
+      `toy:${toy.id}`,
     );
-  } else {
-    tellHome({ kind: 'fireEvent', eventType: 'toybox_town_action', data: { toy: 'lamp', on } }, 'lamp');
+    return;
   }
+  tellHome(
+    { kind: 'fireEvent', eventType: ACTION_EVENT, data: { toy: toy.kind, id: toy.id, room: toy.room, on } },
+    `toy:${toy.id}`,
+  );
+}
+
+/** A character walked into another room, e.g. so the house can turn on that room's light. */
+export function tellCharacterMoved(character: string, room: string): void {
+  tellHome({ kind: 'fireEvent', eventType: ACTION_EVENT, data: { character, room } }, `room:${character}`);
+}
+
+/** A character got changed into something new. */
+export function tellDressed(character: string, outfit: Record<string, string>): void {
+  tellHome({ kind: 'fireEvent', eventType: ACTION_EVENT, data: { character, outfit } }, `outfit:${character}`);
 }
