@@ -12,6 +12,8 @@ Built with Expo, React Native and TypeScript, the same stack as
 offline web app hosted by Home Assistant now, and the same code becomes a native
 app with over-the-air updates later. See [docs/build-plan.md](docs/build-plan.md).
 
+**Try the demo and set it up: [SETUP.md](SETUP.md).**
+
 ## Status
 
 - [x] Foundation: installable offline web app, saves on the device, a Grown-ups
