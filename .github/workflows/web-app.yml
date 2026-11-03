@@ -45,10 +45,20 @@ jobs:
           cp dist/version.json version.json
           (cd dist && zip -qr ../toybox-town-web.zip .)
 
+      - name: Build the web app for the Home Assistant add-on (served from the root)
+        run: |
+          rm -rf dist
+          npm run export:web
+          (cd dist && zip -qr ../toybox-town-addon-web.zip .)
+        env:
+          EXPO_NO_TELEMETRY: 1
+
       - uses: actions/upload-artifact@v4
         with:
           name: toybox-town-web
-          path: toybox-town-web.zip
+          path: |
+            toybox-town-web.zip
+            toybox-town-addon-web.zip
 
       - name: Post it on the "Latest web app" release
         if: github.event_name != 'pull_request'
@@ -56,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest-web --yes --cleanup-tag || true
-          gh release create latest-web toybox-town-web.zip version.json \
+          gh release create latest-web toybox-town-web.zip toybox-town-addon-web.zip version.json \
             --target "$GITHUB_SHA" \
             --title "Latest web app" \
             --notes "Build ${{ github.run_number }}, from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Unzip toybox-town-web.zip into your Home Assistant config folder at www/toybox-town/, then open /local/toybox-town/ on your Home Assistant address. See docs/home-assistant.md."
