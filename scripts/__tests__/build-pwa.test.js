@@ -17,7 +17,7 @@ describe('build-pwa', () => {
 
   it('scopes the manifest to the base', () => {
     const m = manifest('/local/t');
-    expect(m.start_url).toBe('/local/t/');
+    expect(m.start_url).toBe('/local/t/index.html');
     expect(m.scope).toBe('/local/t/');
     expect(m.icons.every((i) => i.src.startsWith('/local/t/icons/'))).toBe(true);
   });

@@ -14,7 +14,7 @@ changed (stars, lights, music) by itself.
    the folder `www/toybox-town/` and unzip everything into it, so you have
    `www/toybox-town/index.html`. The File editor or Samba add-on both work.
    If `www` didn't exist before, restart Home Assistant once.
-3. Open `https://<your Home Assistant address>/local/toybox-town/`.
+3. Open `https://<your Home Assistant address>/local/toybox-town/index.html`. (Use the full `index.html` address: Home Assistant answers 403 for the bare folder address.)
 
 To update, replace the folder's contents with the new zip. Tablets pick up the
 new version the next time the game is opened while online.
@@ -34,7 +34,7 @@ It opens full screen, like a regular app.
 ## Add it to the Home Assistant sidebar (optional)
 
 Settings → Dashboards → *Add dashboard* → *Webpage*, and use the URL
-`/local/toybox-town/`.
+`/local/toybox-town/index.html`.
 
 ## Good to know
 
