@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Toybox Town",
+    "slug": "toybox-town",
+    "version": "0.1.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFE3A3",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.xjjohnson.toyboxtown"
+    },
+    "web": {
+      "name": "Toybox Town",
+      "shortName": "Toybox",
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": ["expo-router"],
+    "scheme": "toyboxtown"
+  }
+}
