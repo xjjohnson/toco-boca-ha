@@ -10,7 +10,9 @@ import {
   type PlacedThing,
   type RoomId,
   type Slot,
+  type ThingKind,
 } from '@/play/catalog';
+import { arrivalSpot } from '@/play/scene';
 import { persistStorage } from '@/store/storage';
 
 /** The saved play world. Bump `version` and extend `migrateWorld` when the shape changes, so kids never lose a save. */
@@ -29,13 +31,20 @@ export interface WorldSave {
 const byId = <T extends { id: string }>(list: T[]) =>
   Object.fromEntries(list.map((item) => [item.id, { ...item }])) as Record<string, T>;
 
-export function newWorld(): WorldSave {
+/** A bought toy, placed in a room. Its id is its kind: each toy is bought once. */
+export function boughtToy(kind: ThingKind, room: RoomId): PlacedThing {
+  const spot = arrivalSpot(room);
+  return { id: kind, kind, room, x: 0.5, y: Math.max(spot.y, 0.8), on: false };
+}
+
+export function newWorld(ownedToys: ThingKind[] = []): WorldSave {
+  const toys = ownedToys.map((kind) => boughtToy(kind, 'bedroom'));
   return {
     timeOfDay: 'day',
     visitor: null,
     celebrations: 0,
     room: 'bedroom',
-    things: byId(START_THINGS),
+    things: byId([...START_THINGS, ...toys]),
     characters: byId(START_CHARACTERS) as Record<CharacterId, CharacterSave>,
   };
 }
@@ -77,11 +86,14 @@ interface WorldState extends WorldSave {
   goTo: (room: RoomId) => void;
   moveThing: (id: string, x: number, y: number, room?: RoomId) => void;
   setThingOn: (id: string, on: boolean) => void;
+  /** Puts a bought toy in a room, or brings it there if it's somewhere else. */
+  bringToy: (kind: ThingKind, room: RoomId) => void;
   moveCharacter: (id: CharacterId, x: number, y: number, room?: RoomId) => void;
   wear: (id: CharacterId, slot: Slot, piece: string) => void;
   dismissVisitor: () => void;
   applyReaction: (reaction: GameReaction) => void;
-  reset: () => void;
+  /** Starts the house over, keeping toys that were bought. */
+  reset: (ownedToys?: ThingKind[]) => void;
 }
 
 function withThingOn(world: WorldSave, id: string, on: boolean): Partial<WorldSave> {
@@ -117,6 +129,12 @@ export const useWorld = create<WorldState>()(
           return { things: { ...s.things, [id]: { ...thing, x, y, room: room ?? thing.room } } };
         }),
       setThingOn: (id, on) => set((s) => withThingOn(s, id, on)),
+      bringToy: (kind, room) =>
+        set((s) => {
+          const there = s.things[kind];
+          const placed = boughtToy(kind, room);
+          return { things: { ...s.things, [kind]: there ? { ...there, room, x: placed.x, y: placed.y } : placed } };
+        }),
       moveCharacter: (id, x, y, room) =>
         set((s) => {
           const who = s.characters[id];
@@ -129,7 +147,7 @@ export const useWorld = create<WorldState>()(
         }),
       dismissVisitor: () => set({ visitor: null }),
       applyReaction: (reaction) => set((s) => reduceReaction(s, reaction)),
-      reset: () => set(newWorld()),
+      reset: (ownedToys = []) => set(newWorld(ownedToys)),
     }),
     {
       name: 'toybox.world',

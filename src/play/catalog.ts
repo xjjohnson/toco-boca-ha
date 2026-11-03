@@ -7,7 +7,7 @@
  * touches, which makes standing on the floor or sitting on a bed natural.
  */
 
-export type RoomId = 'bedroom' | 'kitchen';
+export type RoomId = 'bedroom' | 'bathroom' | 'kitchen' | 'living';
 
 /** A rectangle in room fractions. */
 export interface Rect {
@@ -38,21 +38,50 @@ export interface RoomDef {
   surfaces: Surface[];
 }
 
+const LEFT_DOOR = { x: 0.02, y: 0.2, w: 0.12, h: 0.42 };
+const RIGHT_DOOR = { x: 0.86, y: 0.2, w: 0.12, h: 0.42 };
+
+/**
+ * The house: two floors, two rooms each. Doors join rooms on the same floor;
+ * to go up or down, pull out to the whole house and drag someone across.
+ */
 export const ROOMS: Record<RoomId, RoomDef> = {
   bedroom: {
     id: 'bedroom',
     name: 'Bedroom',
     floorY: 0.6,
-    door: { x: 0.86, y: 0.2, w: 0.12, h: 0.42, to: 'kitchen' },
+    door: { ...RIGHT_DOOR, to: 'bathroom' },
     surfaces: [{ x1: 0.05, x2: 0.25, y: 0.32, base: 0.34 }],
+  },
+  bathroom: {
+    id: 'bathroom',
+    name: 'Bathroom',
+    floorY: 0.6,
+    door: { ...LEFT_DOOR, to: 'bedroom' },
+    surfaces: [{ x1: 0.6, x2: 0.8, y: 0.3, base: 0.32 }],
   },
   kitchen: {
     id: 'kitchen',
     name: 'Kitchen',
     floorY: 0.6,
-    door: { x: 0.02, y: 0.2, w: 0.12, h: 0.42, to: 'bedroom' },
+    door: { ...RIGHT_DOOR, to: 'living' },
     surfaces: [{ x1: 0.56, x2: 0.84, y: 0.5, base: 0.68 }],
   },
+  living: {
+    id: 'living',
+    name: 'Living room',
+    floorY: 0.6,
+    door: { ...LEFT_DOOR, to: 'kitchen' },
+    surfaces: [{ x1: 0.72, x2: 0.92, y: 0.3, base: 0.32 }],
+  },
+};
+
+/** Where each room sits in the house, upstairs first. */
+export const HOUSE_LAYOUT: Record<RoomId, { col: 0 | 1; floor: 0 | 1 }> = {
+  bedroom: { col: 0, floor: 0 },
+  bathroom: { col: 1, floor: 0 },
+  kitchen: { col: 0, floor: 1 },
+  living: { col: 1, floor: 1 },
 };
 
 export type ThingKind =
@@ -69,7 +98,15 @@ export type ThingKind =
   | 'apple'
   | 'banana'
   | 'cake'
-  | 'cup';
+  | 'cup'
+  | 'tub'
+  | 'sink'
+  | 'sofa'
+  | 'tv'
+  | 'duck'
+  | 'blocks'
+  | 'guitar'
+  | 'balloon';
 
 export interface ThingDef {
   kind: ThingKind;
@@ -88,6 +125,10 @@ export interface ThingDef {
   switchable?: boolean;
   /** Where its top is, as a fraction of its height from the bottom, if things can sit on it. */
   surfaceAt?: number;
+  /** Stars it costs in the toy box. Things without a price are in the house from the start. */
+  price?: number;
+  /** Floats up instead of falling when let go. */
+  floats?: boolean;
 }
 
 export const THINGS: Record<ThingKind, ThingDef> = {
@@ -105,7 +146,20 @@ export const THINGS: Record<ThingKind, ThingDef> = {
   banana: { kind: 'banana', label: 'Banana', w: 80, h: 44 },
   cake: { kind: 'cake', label: 'Cake', w: 110, h: 96 },
   cup: { kind: 'cup', label: 'Cup', w: 50, h: 56 },
+  tub: { kind: 'tub', label: 'Bath', w: 380, h: 170, fixed: true, switchable: true, surfaceAt: 0.62 },
+  sink: { kind: 'sink', label: 'Sink', w: 150, h: 210, fixed: true, surfaceAt: 0.66 },
+  sofa: { kind: 'sofa', label: 'Sofa', w: 400, h: 190, fixed: true, surfaceAt: 0.48 },
+  tv: { kind: 'tv', label: 'TV', w: 230, h: 210, fixed: true, switchable: true },
+  duck: { kind: 'duck', label: 'Rubber duck', w: 70, h: 62, price: 2 },
+  blocks: { kind: 'blocks', label: 'Blocks', w: 100, h: 90, price: 2 },
+  guitar: { kind: 'guitar', label: 'Guitar', w: 80, h: 170, price: 4, switchable: true },
+  balloon: { kind: 'balloon', label: 'Balloon', w: 70, h: 160, price: 1, floats: true },
 };
+
+/** Toys kids can buy with stars, cheapest first. */
+export const SHOP_TOYS: ThingKind[] = (Object.keys(THINGS) as ThingKind[])
+  .filter((k) => (THINGS[k].price ?? 0) > 0)
+  .sort((a, b) => (THINGS[a].price ?? 0) - (THINGS[b].price ?? 0));
 
 export interface PlacedThing {
   /** Stable id, used in saves and Home Assistant events (e.g. "lamp"). */
@@ -156,30 +210,32 @@ export interface Piece {
   style: string;
   color: string;
   accent?: string;
+  /** Stars to unlock it. No price means everyone has it from the start. */
+  price?: number;
 }
 
 export const WARDROBE: Record<Slot, Piece[]> = {
   hat: [
     { id: 'none', label: 'No hat', style: 'none', color: 'transparent' },
     { id: 'cap-red', label: 'Red cap', style: 'cap', color: '#F25C54' },
-    { id: 'crown', label: 'Crown', style: 'crown', color: '#FFD23F', accent: '#FF6FB5' },
+    { id: 'crown', label: 'Crown', style: 'crown', color: '#FFD23F', accent: '#FF6FB5', price: 5 },
     { id: 'bow-pink', label: 'Pink bow', style: 'bow', color: '#FF8FC7' },
-    { id: 'party', label: 'Party hat', style: 'party', color: '#7A5CFF', accent: '#FFE27A' },
-    { id: 'beanie-green', label: 'Green beanie', style: 'beanie', color: '#3CC48A', accent: '#FFFFFF' },
+    { id: 'party', label: 'Party hat', style: 'party', color: '#7A5CFF', accent: '#FFE27A', price: 3 },
+    { id: 'beanie-green', label: 'Green beanie', style: 'beanie', color: '#3CC48A', accent: '#FFFFFF', price: 2 },
   ],
   top: [
     { id: 'tee-coral', label: 'Coral tee', style: 'tee', color: '#FF7A59' },
     { id: 'tee-sky', label: 'Sky tee', style: 'tee', color: '#4FB3FF' },
     { id: 'stripes', label: 'Stripy shirt', style: 'stripes', color: '#FFFFFF', accent: '#2F6FEB' },
-    { id: 'star', label: 'Star shirt', style: 'star', color: '#2A2340', accent: '#FFD23F' },
-    { id: 'hoodie-green', label: 'Green hoodie', style: 'hoodie', color: '#3CC48A' },
+    { id: 'star', label: 'Star shirt', style: 'star', color: '#2A2340', accent: '#FFD23F', price: 3 },
+    { id: 'hoodie-green', label: 'Green hoodie', style: 'hoodie', color: '#3CC48A', price: 3 },
     { id: 'dress-purple', label: 'Purple dress', style: 'dress', color: '#A57CFF', accent: '#FFFFFF' },
   ],
   bottom: [
     { id: 'shorts-blue', label: 'Blue shorts', style: 'shorts', color: '#2F6FEB' },
     { id: 'pants-denim', label: 'Jeans', style: 'pants', color: '#4A6FA5' },
-    { id: 'pants-red', label: 'Red trousers', style: 'pants', color: '#D94848' },
-    { id: 'skirt-pink', label: 'Pink skirt', style: 'skirt', color: '#FF8FC7' },
+    { id: 'pants-red', label: 'Red trousers', style: 'pants', color: '#D94848', price: 2 },
+    { id: 'skirt-pink', label: 'Pink skirt', style: 'skirt', color: '#FF8FC7', price: 2 },
     { id: 'overalls-yellow', label: 'Yellow overalls', style: 'overalls', color: '#FFC83D' },
   ],
   shoes: [
@@ -212,12 +268,19 @@ export const START_THINGS: PlacedThing[] = [
   { id: 'radio', kind: 'radio', room: 'bedroom', x: 0.11, y: 0.32, on: false },
   { id: 'books', kind: 'books', room: 'bedroom', x: 0.2, y: 0.32 },
   { id: 'table', kind: 'table', room: 'kitchen', x: 0.38, y: 0.9 },
-  { id: 'fridge', kind: 'fridge', room: 'kitchen', x: 0.92, y: 0.7, on: false },
+  { id: 'fridge', kind: 'fridge', room: 'kitchen', x: 0.11, y: 0.7, on: false },
   { id: 'toaster', kind: 'toaster', room: 'kitchen', x: 0.62, y: 0.5, on: false },
   { id: 'apple', kind: 'apple', room: 'kitchen', x: 0.3, y: 0.71 },
   { id: 'banana', kind: 'banana', room: 'kitchen', x: 0.39, y: 0.71 },
   { id: 'cake', kind: 'cake', room: 'kitchen', x: 0.76, y: 0.5 },
   { id: 'cup', kind: 'cup', room: 'kitchen', x: 0.47, y: 0.71 },
+  { id: 'tub', kind: 'tub', room: 'bathroom', x: 0.66, y: 0.9, on: false },
+  { id: 'sink', kind: 'sink', room: 'bathroom', x: 0.3, y: 0.78 },
+  { id: 'plant-bath', kind: 'plant', room: 'bathroom', x: 0.94, y: 0.68 },
+  { id: 'sofa', kind: 'sofa', room: 'living', x: 0.58, y: 0.88 },
+  { id: 'tv', kind: 'tv', room: 'living', x: 0.27, y: 0.8, on: false },
+  { id: 'lamp-living', kind: 'lamp', room: 'living', x: 0.92, y: 0.76, on: false },
+  { id: 'books-living', kind: 'books', room: 'living', x: 0.8, y: 0.3 },
 ];
 
 export const START_CHARACTERS: CharacterSave[] = [
@@ -230,9 +293,9 @@ export const START_CHARACTERS: CharacterSave[] = [
   },
   {
     id: 'mo',
-    room: 'bedroom',
-    x: 0.66,
-    y: 0.94,
+    room: 'living',
+    x: 0.45,
+    y: 0.95,
     outfit: { hat: 'none', top: 'stripes', bottom: 'pants-denim', shoes: 'sneakers-red' },
   },
   {

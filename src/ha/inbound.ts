@@ -29,7 +29,7 @@ export type GameReaction =
 
 /** Which house entities mean what in the game. All optional. */
 export interface InboundContext {
-  /** An input_number or counter holding the points a grown-up has given. */
+  /** The points total a grown-up raises: sensor.toybox_town_points, an input_number, or a counter. */
   pointsEntity?: string;
   /** The real light (or light group) for each game room. */
   roomLights?: Partial<Record<RoomId, string>>;

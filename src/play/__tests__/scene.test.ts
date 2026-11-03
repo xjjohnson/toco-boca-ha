@@ -47,16 +47,21 @@ describe('restingSpot', () => {
 
 describe('doors', () => {
   it('finds the door a drop was let go over', () => {
-    expect(doorAt('bedroom', 0.92, 0.4)).toBe('kitchen');
-    expect(doorAt('kitchen', 0.08, 0.4)).toBe('bedroom');
+    expect(doorAt('bedroom', 0.92, 0.4)).toBe('bathroom');
+    expect(doorAt('bathroom', 0.08, 0.4)).toBe('bedroom');
+    expect(doorAt('kitchen', 0.92, 0.4)).toBe('living');
+    expect(doorAt('living', 0.08, 0.4)).toBe('kitchen');
     expect(doorAt('bedroom', 0.5, 0.4)).toBeNull();
   });
 
   it('brings arrivals in through the other door, on the floor', () => {
-    const spot = arrivalSpot('kitchen');
-    expect(spot.x).toBeGreaterThan(0.14);
-    expect(spot.y).toBeGreaterThan(0.6);
-    expect(doorAt('kitchen', spot.x, spot.y)).toBeNull();
+    for (const room of ['bedroom', 'bathroom', 'kitchen', 'living'] as const) {
+      const spot = arrivalSpot(room);
+      expect(spot.x).toBeGreaterThan(0.14);
+      expect(spot.x).toBeLessThan(0.86);
+      expect(spot.y).toBeGreaterThan(0.6);
+      expect(doorAt(room, spot.x, spot.y)).toBeNull();
+    }
   });
 });
 

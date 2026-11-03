@@ -2,8 +2,11 @@ import { useEffect, type ReactNode } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureDetector, useExclusiveGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
+  cancelAnimation,
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -28,6 +31,10 @@ interface Props {
   onDrop?: (x: number, y: number) => { x: number; y: number } | null | void;
   /** Lets the art react while it's held, e.g. a big smile. */
   onLift?: (lifted: boolean) => void;
+  /** Bop along to music playing in the house. */
+  dance?: boolean;
+  /** Don't take touches at all (a picture of the room). */
+  inert?: boolean;
   children: ReactNode;
 }
 
@@ -36,11 +43,29 @@ interface Props {
  * handler + reanimated); a tap gives a little squish and calls onTap. Big hit
  * boxes and a lift-up scale make it easy for small hands.
  */
-export function Draggable({ x, y, width, height, room, z, fixed, label, onTap, onDrop, onLift, children }: Props) {
+export function Draggable({ x, y, width, height, room, z, fixed, label, onTap, onDrop, onLift, dance, inert, children }: Props) {
   const posX = useSharedValue(x * room.w);
   const posY = useSharedValue(y * room.h);
   const lifted = useSharedValue(0);
   const squish = useSharedValue(1);
+  const beat = useSharedValue(0);
+
+  useEffect(() => {
+    if (dance) {
+      // Start each dancer at a slightly different moment so they don't move as one.
+      beat.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 280 + Math.round(Math.random() * 80), easing: Easing.inOut(Easing.quad) }),
+          withTiming(-1, { duration: 280 + Math.round(Math.random() * 80), easing: Easing.inOut(Easing.quad) }),
+        ),
+        -1,
+        true,
+      );
+    } else {
+      cancelAnimation(beat);
+      beat.value = withTiming(0, { duration: 150 });
+    }
+  }, [dance, beat]);
 
   // Follow the save when it loads, is reset, the house moves something, or the screen resizes.
   useEffect(() => {
@@ -96,10 +121,11 @@ export function Draggable({ x, y, width, height, room, z, fixed, label, onTap, o
     zIndex: lifted.value > 0 ? 10000 : z,
     transform: [
       { translateX: posX.value - width / 2 },
-      { translateY: posY.value - height },
+      { translateY: posY.value - height - Math.abs(beat.value) * height * 0.05 },
       // Grow from the feet, so lifting looks like a hop.
       { translateY: height / 2 },
       { scale: (1 + lifted.value * 0.12) * squish.value },
+      { rotate: `${beat.value * 6}deg` },
       { translateY: -height / 2 },
     ],
   }));
@@ -107,6 +133,7 @@ export function Draggable({ x, y, width, height, room, z, fixed, label, onTap, o
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View
+        pointerEvents={inert ? 'none' : 'auto'}
         style={[styles.sprite, { width, height }, style]}
         accessibilityLabel={label}
         accessibilityRole={onTap ? 'button' : undefined}

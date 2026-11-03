@@ -1,195 +1,168 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { GestureDetector, usePinchGesture } from 'react-native-gesture-handler';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
+import Svg, { Path, Rect } from 'react-native-svg';
 
-import { CharacterArt } from '@/art/Character';
-import { RoomArt } from '@/art/Room';
-import { ThingArt } from '@/art/Things';
-import { Draggable } from '@/components/Draggable';
+import { HouseView } from '@/components/HouseView';
+import { RoomScene } from '@/components/RoomScene';
+import { StarCounter } from '@/components/Stars';
 import { StatusPill } from '@/components/StatusPill';
+import { ToyBox } from '@/components/ToyBox';
 import { Wardrobe } from '@/components/Wardrobe';
 import { colors, radius, spacing } from '@/constants/theme';
-import { CHARACTER_SIZE, CHARACTERS, ROOMS, THINGS, type CharacterId, type RoomId } from '@/play/catalog';
-import {
-  arrivalSpot,
-  depthOf,
-  doorAt,
-  restingSpot,
-  scaleFor,
-  spriteFraction,
-  surfacesIn,
-  type RoomSize,
-} from '@/play/scene';
+import type { CharacterId, RoomId } from '@/play/catalog';
+import { houseLayout, roomAt, zoomInto } from '@/play/house';
+import type { RoomSize } from '@/play/scene';
 import { useWorld } from '@/store/world';
 
-export default function Playroom() {
+const ZOOM_MS = 420;
+
+/**
+ * The game: the whole cutaway house, and each room up close. Tap a room (or
+ * spread two fingers on it) to zoom in; pinch, or tap the house button, to
+ * pull back out.
+ */
+export default function Play() {
   const world = useWorld();
-  const [size, setSize] = useState<RoomSize | null>(null);
+  const [screen, setScreen] = useState<RoomSize | null>(null);
+  /** null = looking at the whole house. */
+  const [inside, setInside] = useState<RoomId | null>(null);
+  /** The room the zoom animation heads into or comes out of. */
+  const [focus, setFocus] = useState<RoomId>(world.room);
   const [dressing, setDressing] = useState<CharacterId | null>(null);
-  const [held, setHeld] = useState<CharacterId | null>(null);
-  const night = world.timeOfDay === 'night';
+  const [shopping, setShopping] = useState(false);
   const hooray = useHooray(world.celebrations);
-  const room = ROOMS[world.room];
+
+  const zoom = useSharedValue(0);
+  const pinch = useSharedValue(1);
+  const busy = useRef(false);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
-    if (width > 0 && height > 0) setSize({ w: width, h: height });
+    if (width > 0 && height > 0) setScreen({ w: width, h: height });
   };
 
-  const things = useMemo(() => Object.values(world.things), [world.things]);
-  const tops = useMemo(() => (size ? surfacesIn(world.room, things, size) : []), [world.room, things, size]);
+  const layout = useMemo(() => (screen ? houseLayout(screen) : null), [screen]);
+  const target = layout && screen ? zoomInto(layout.cells[focus], screen) : { scale: 1, tx: 0, ty: 0 };
 
-  /**
-   * Where something let go of at (x, y) ends up: through the door into the
-   * next room (and the view follows), or resting on the floor or a top.
-   * `centerUp` is how far its middle is above its feet, for the door check.
-   */
-  const placeDrop = (selfId: string, x: number, y: number, centerUp: number) => {
-    if (!size) return null;
-    const through = doorAt(world.room, x, y - centerUp);
-    if (through) return { through, spot: arrivalSpot(through) };
-    const others = things.filter((t) => t.id !== selfId);
-    return { through: null, spot: restingSpot(world.room, others, size, x, y) };
+  const arrive = (room: RoomId) => {
+    busy.current = false;
+    world.goTo(room);
+    setInside(room);
   };
 
-  const toggle = (id: string) => {
-    const thing = world.things[id];
-    const on = !thing.on;
-    world.setThingOn(id, on);
+  const enter = (room: RoomId) => {
+    if (busy.current || inside) return;
+    busy.current = true;
+    setFocus(room);
+    // Let the focus render, then fly in.
+    requestAnimationFrame(() => {
+      zoom.value = withTiming(1, { duration: ZOOM_MS, easing: Easing.inOut(Easing.cubic) }, (done) => {
+        if (done) scheduleOnRN(arrive, room);
+      });
+    });
   };
 
-  const walkTo = (to: RoomId) => world.goTo(to);
+  const leave = () => {
+    if (busy.current || !inside) return;
+    busy.current = true;
+    setFocus(inside);
+    setInside(null);
+    zoom.value = 1;
+    zoom.value = withTiming(0, { duration: ZOOM_MS, easing: Easing.inOut(Easing.cubic) }, () => {
+      scheduleOnRN(() => {
+        busy.current = false;
+      });
+    });
+  };
 
-  const lampLit = things.some((t) => t.room === world.room && t.kind === 'lamp' && t.on);
+  // Walking through a door keeps the zoom pointed at the room you're in.
+  const walkTo = (room: RoomId) => {
+    world.goTo(room);
+    setInside(room);
+    setFocus(room);
+  };
 
-  const sprites = size
-    ? [
-        ...things
-          .filter((t) => t.room === world.room)
-          .map((t) => {
-            const def = THINGS[t.kind];
-            const s = scaleFor(size);
-            const w = def.w * s;
-            const h = def.h * s;
-            return {
-              key: `thing:${t.id}`,
-              depth: depthOf(t.y, t.x, tops),
-              el: (z: number) => (
-                <Draggable
-                  key={`thing:${t.id}`}
-                  x={t.x}
-                  y={t.y}
-                  width={w}
-                  height={h}
-                  room={size}
-                  z={z}
-                  fixed={def.fixed}
-                  label={def.switchable ? `${def.label}, ${t.on ? 'on' : 'off'}` : def.label}
-                  onTap={def.switchable ? () => toggle(t.id) : undefined}
-                  onDrop={(x, y) => {
-                    const drop = placeDrop(t.id, x, y, spriteFraction(def, size).h / 2);
-                    if (!drop) return null;
-                    if (drop.through) {
-                      world.moveThing(t.id, drop.spot.x, drop.spot.y, drop.through);
-                      walkTo(drop.through);
-                      return null;
-                    }
-                    world.moveThing(t.id, drop.spot.x, drop.spot.y);
-                    return drop.spot;
-                  }}
-                >
-                  <ThingArt kind={t.kind} on={t.on} width={w} height={h} />
-                </Draggable>
-              ),
-            };
-          }),
-        ...Object.values(world.characters)
-          .filter((c) => c.room === world.room)
-          .map((c) => {
-            const s = scaleFor(size);
-            const w = CHARACTER_SIZE.w * s;
-            const h = CHARACTER_SIZE.h * s;
-            return {
-              key: `who:${c.id}`,
-              depth: depthOf(c.y, c.x, tops),
-              el: (z: number) => (
-                <Draggable
-                  key={`who:${c.id}`}
-                  x={c.x}
-                  y={c.y}
-                  width={w}
-                  height={h}
-                  room={size}
-                  z={z}
-                  label={`${CHARACTERS[c.id].name}, tap to dress up`}
-                  onTap={() => setDressing(c.id)}
-                  onLift={(up) => setHeld(up ? c.id : null)}
-                  onDrop={(x, y) => {
-                    const drop = placeDrop(c.id, x, y, spriteFraction(CHARACTER_SIZE, size).h / 2);
-                    if (!drop) return null;
-                    if (drop.through) {
-                      world.moveCharacter(c.id, drop.spot.x, drop.spot.y, drop.through);
-                      walkTo(drop.through);
-                      return null;
-                    }
-                    world.moveCharacter(c.id, drop.spot.x, drop.spot.y);
-                    return drop.spot;
-                  }}
-                >
-                  <CharacterArt who={c.id} outfit={c.outfit} width={w} height={h} happy={held === c.id} />
-                </Draggable>
-              ),
-            };
-          }),
-      ]
-        .sort((a, b) => a.depth - b.depth)
-        .map((sprite, i) => sprite.el(i + 1))
-    : null;
+  const pinchEnd = (scale: number, fx: number, fy: number) => {
+    if (inside && scale < 0.85) leave();
+    else if (!inside && scale > 1.2 && layout) {
+      const room = roomAt(layout, fx, fy);
+      if (room) enter(room);
+    }
+  };
 
-  const door = room.door;
-  const dressingWho = dressing ? world.characters[dressing] : null;
-  const closeWardrobe = () => setDressing(null);
+  const pinchGesture = usePinchGesture({
+    onUpdate: (e) => {
+      'worklet';
+      pinch.value = Math.min(1.5, Math.max(0.7, e.scale));
+    },
+    onDeactivate: (e) => {
+      'worklet';
+      scheduleOnRN(pinchEnd, e.scale, e.focalX, e.focalY);
+      pinch.value = withSpring(1, { damping: 15 });
+    },
+  });
+
+  const houseStyle = useAnimatedStyle(() => {
+    const p = zoom.value;
+    return {
+      transform: [
+        { translateX: target.tx * p },
+        { translateY: target.ty * p },
+        { scale: (1 + (target.scale - 1) * p) * pinch.value },
+      ],
+    };
+  });
+
+  const roomStyle = useAnimatedStyle(() => ({ transform: [{ scale: Math.min(1, pinch.value) }] }));
 
   return (
-    <View style={styles.room} onLayout={onLayout}>
-      {size && (
-        <>
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <RoomArt room={world.room} width={size.w} height={size.h} night={night} />
+    <View style={styles.screen} onLayout={onLayout}>
+      {screen && layout && (
+        <GestureDetector gesture={pinchGesture}>
+          <View style={StyleSheet.absoluteFill}>
+            {inside ? (
+              <Animated.View style={[StyleSheet.absoluteFill, roomStyle]}>
+                <RoomScene room={inside} size={screen} onWalkTo={walkTo} onDress={setDressing} />
+              </Animated.View>
+            ) : (
+              <Animated.View style={[StyleSheet.absoluteFill, houseStyle]}>
+                <HouseView screen={screen} layout={layout} onEnter={enter} />
+              </Animated.View>
+            )}
           </View>
-
-          <Pressable
-            onPress={() => walkTo(door.to)}
-            accessibilityLabel={`Go to the ${ROOMS[door.to].name.toLowerCase()}`}
-            style={[
-              styles.door,
-              { left: door.x * size.w, top: door.y * size.h, width: door.w * size.w, height: door.h * size.h },
-            ]}
-          />
-
-          {sprites}
-
-          {night && (
-            <View
-              pointerEvents="none"
-              style={[styles.night, { backgroundColor: lampLit ? 'rgba(255,200,90,0.08)' : 'rgba(16,14,48,0.28)' }]}
-            />
-          )}
-        </>
+        </GestureDetector>
       )}
 
       <View style={styles.topBar} pointerEvents="box-none">
-        {/* A long press keeps little fingers out of the grown-ups screen. */}
-        <Pressable
-          onLongPress={() => router.push('/grown-ups')}
-          delayLongPress={1200}
-          accessibilityLabel="Grown-ups, press and hold"
-          style={styles.grownUps}
-        >
-          <Text style={styles.grownUpsText}>⚙︎</Text>
-        </Pressable>
+        <View style={styles.row} pointerEvents="box-none">
+          {/* A long press keeps little fingers out of the grown-ups screen. */}
+          <Pressable
+            onLongPress={() => router.push('/grown-ups')}
+            delayLongPress={1200}
+            accessibilityLabel="Grown-ups, press and hold"
+            style={styles.grownUps}
+          >
+            <Text style={styles.grownUpsText}>⚙︎</Text>
+          </Pressable>
+          {inside && (
+            <Pressable onPress={leave} accessibilityLabel="See the whole house" style={styles.bigButton}>
+              <HouseIcon />
+            </Pressable>
+          )}
+        </View>
+        <StarCounter />
         <StatusPill />
       </View>
+
+      {inside && (
+        <Pressable onPress={() => setShopping(true)} accessibilityLabel="Toy box" style={[styles.bigButton, styles.toyBox]}>
+          <ToyBoxIcon />
+        </Pressable>
+      )}
 
       {hooray && (
         <View style={styles.hooray} pointerEvents="none">
@@ -203,15 +176,39 @@ export default function Playroom() {
         </Pressable>
       )}
 
-      {dressingWho && (
+      {dressing && (
         <Wardrobe
-          who={dressingWho.id}
-          outfit={dressingWho.outfit}
-          onWear={(slot, piece) => world.wear(dressingWho.id, slot, piece)}
-          onDone={closeWardrobe}
+          who={dressing}
+          outfit={world.characters[dressing].outfit}
+          onWear={(slot, piece) => world.wear(dressing, slot, piece)}
+          onDone={() => setDressing(null)}
         />
       )}
+
+      {shopping && inside && <ToyBox room={inside} onDone={() => setShopping(false)} />}
     </View>
+  );
+}
+
+function HouseIcon() {
+  return (
+    <Svg width={40} height={40} viewBox="0 0 40 40">
+      <Path d="M4 20 L20 5 L36 20 Z" fill="#F25C54" stroke={colors.border} strokeWidth={3} strokeLinejoin="round" />
+      <Rect x={9} y={19} width={22} height={17} fill="#FFD9A8" stroke={colors.border} strokeWidth={3} />
+      <Rect x={17} y={25} width={7} height={11} fill="#FF9F68" stroke={colors.border} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+function ToyBoxIcon() {
+  return (
+    <Svg width={48} height={48} viewBox="0 0 48 48">
+      <Path d="M10 6 Q16 2 20 10" fill="none" stroke="#FF6FB5" strokeWidth={4} strokeLinecap="round" />
+      <Rect x={22} y={4} width={12} height={12} rx={2} fill="#4FB3FF" stroke={colors.border} strokeWidth={2.5} />
+      <Rect x={4} y={18} width={40} height={26} rx={5} fill="#FF9F68" stroke={colors.border} strokeWidth={3} />
+      <Rect x={2} y={14} width={44} height={8} rx={3} fill="#FFD23F" stroke={colors.border} strokeWidth={3} />
+      <Path d="M24 26 L26 30.5 L31 31 L27.2 34.2 L28.4 39 L24 36.4 L19.6 39 L20.8 34.2 L17 31 L22 30.5 Z" fill="#FFF3B0" stroke={colors.border} strokeWidth={1.5} />
+    </Svg>
   );
 }
 
@@ -233,9 +230,7 @@ function useHooray(count: number): boolean {
 }
 
 const styles = StyleSheet.create({
-  room: { flex: 1, overflow: 'hidden', backgroundColor: colors.wall },
-  door: { position: 'absolute' },
-  night: { ...StyleSheet.absoluteFill, zIndex: 15000 },
+  screen: { flex: 1, overflow: 'hidden', backgroundColor: colors.daySky },
   topBar: {
     position: 'absolute',
     top: spacing.md,
@@ -243,9 +238,10 @@ const styles = StyleSheet.create({
     right: spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     zIndex: 16000,
   },
+  row: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   grownUps: {
     width: 48,
     height: 48,
@@ -255,6 +251,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   grownUpsText: { fontSize: 24, color: colors.text },
+  bigButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 4,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toyBox: { position: 'absolute', right: spacing.md, bottom: spacing.md, zIndex: 16000 },
   banner: {
     position: 'absolute',
     bottom: spacing.xl,

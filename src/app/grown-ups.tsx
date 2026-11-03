@@ -6,8 +6,9 @@ import { colors, radius, spacing } from '@/constants/theme';
 import { GAME_EVENT } from '@/ha/inbound';
 import type { EntityState } from '@/ha/types';
 import { WebSocketTransport } from '@/ha/websocketTransport';
-import { ROOMS, type RoomId } from '@/play/catalog';
+import { ROOMS, THINGS, type RoomId, type ThingKind } from '@/play/catalog';
 import { useConnection } from '@/store/connection';
+import { useHouse } from '@/store/house';
 import { useSettings } from '@/store/settings';
 import { useWallet } from '@/store/wallet';
 import { useWorld } from '@/store/world';
@@ -25,6 +26,8 @@ export default function GrownUps() {
   const [houseUp, setHouseUp] = useState(stubTransport.reachable);
   const transportName = useConnection((s) => s.transportName);
   const ha = useConnection((s) => s.ha);
+  // Re-render when the pretend house changes, so its buttons show what's on.
+  useHouse();
   const active = syncManager.getTransport();
   const usingStub = active === stubTransport;
   const lastError = active instanceof WebSocketTransport ? active.lastError : null;
@@ -57,9 +60,9 @@ export default function GrownUps() {
 
       <Section title={`Stars: ${wallet.stars} ⭐`}>
         <Text style={styles.muted}>
-          Kids spend stars on outfits and toys, even offline. Give stars by raising the points helper below in Home
-          Assistant (an automation, a dashboard button, or by hand). Stars added while the tablet is offline arrive when
-          it reconnects.
+          Kids spend stars on outfits and toys, even offline. Give stars from Home Assistant with the “Toybox Town: Add
+          points” action (toybox_town.add_points) in an automation, script or dashboard button. Points given while the
+          tablet is offline arrive when it reconnects.
         </Text>
         <View style={styles.buttons}>
           <Button label="−1" onPress={() => wallet.setStars(wallet.stars - 1)} />
@@ -103,10 +106,10 @@ export default function GrownUps() {
         {choicesError && <Text style={styles.error}>{choicesError}</Text>}
 
         <EntityField
-          label="Points helper (input_number or counter)"
-          placeholder="input_number.toybox_points"
+          label="Points (the Toybox Town integration's sensor, or an input_number or counter)"
+          placeholder="sensor.toybox_town_points"
           value={settings.pointsEntity}
-          domains={['input_number', 'counter']}
+          domains={['sensor', 'input_number', 'counter']}
           choices={choices}
           onChange={(pointsEntity) => settings.update({ pointsEntity })}
         />
@@ -160,7 +163,7 @@ export default function GrownUps() {
             />
           </View>
 
-          <Text style={styles.muted}>Stars (raises the points helper by 3)</Text>
+          <Text style={styles.muted}>Stars (like calling toybox_town.add_points with 3)</Text>
           <View style={styles.buttons}>
             <Button
               label="Give 3 stars"
@@ -223,7 +226,10 @@ export default function GrownUps() {
 
       <Section title="Saves">
         <Text style={styles.muted}>Puts every toy and character back. Stars and bought things are kept.</Text>
-        <Button label="Start the house over" onPress={resetWorld} />
+        <Button
+          label="Start the house over"
+          onPress={() => resetWorld(wallet.owned.filter((id): id is ThingKind => id in THINGS))}
+        />
       </Section>
     </ScrollView>
   );

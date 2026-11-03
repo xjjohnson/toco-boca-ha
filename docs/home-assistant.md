@@ -2,8 +2,8 @@
 
 The game is a web app that Home Assistant serves from its `www` folder. Once a
 tablet has opened it, it's saved on the tablet and keeps working with no
-connection. Anything the kids do while offline waits on the tablet and is sent
-to Home Assistant when the connection comes back.
+connection. When the house is back in reach, the game catches up on what
+changed (stars, lights, music) by itself.
 
 ## Install or update
 
@@ -44,15 +44,88 @@ Settings → Dashboards → *Add dashboard* → *Webpage*, and use the URL
 - The Grown-ups screen opens by pressing and holding the ⚙︎ button for a
   second, so little fingers don't wander in.
 
-## Events (from the next update)
+## Connect the game to your house
 
-Right now the game talks to a pretend house built into the app. When the real
-connection is added, it will use two custom events:
+The game only **listens** to Home Assistant. It never switches a light, starts
+the vacuum or plays music; the connection has no way to send a command.
 
-| Direction | Event | Example data |
-| --- | --- | --- |
-| Game → house | `toybox_town_action` | `{toy: lamp, on: true}` |
-| House → game | `toybox_town` | `{reaction: night}`, `{reaction: visitor, who: Grandma}`, `{reaction: celebrate}` |
+1. In Home Assistant, open your profile → *Security* → *Long-lived access
+   tokens* → *Create token*.
+2. On the tablet, open the Grown-ups screen (press and hold ⚙︎), paste the
+   token, and press *Connect*. The address fills itself in when the game is
+   served from Home Assistant.
+3. Under *What the game listens to*, press *Show choices* and pick:
+   - a light (or light group) for each game room: Bedroom, Bathroom, Kitchen,
+     Living room. The game room glows in the real light's color and goes dim
+     when it's off.
+   - your robot vacuum. While it cleans, a little vacuum roams the game house.
+   - music players. While any of them plays, the characters dance and notes
+     float up.
+4. Press *Connect* again.
 
-So an automation can turn on a real light when the toy lamp is switched on, or
-make the playroom go dark at bedtime.
+> Tip: a token from a non-admin Home Assistant user works for everything
+> except the `toybox_town` event below, which Home Assistant only lets admin
+> tokens listen to.
+
+## Give the kids stars
+
+Stars come from the **Toybox Town integration**, which adds a
+`toybox_town.add_points` action and a `sensor.toybox_town_points` sensor.
+
+### Install the integration
+
+- **HACS:** HACS → ⋮ → *Custom repositories*, add
+  `https://github.com/xjjohnson/toco-boca-ha` as an *Integration*, then install
+  *Toybox Town* and restart Home Assistant.
+- **By hand:** copy `custom_components/toybox_town` from this repo into your
+  config folder's `custom_components/` and restart.
+
+Then Settings → Devices & services → *Add integration* → *Toybox Town*.
+
+### Give points
+
+Call the action from an automation, a script or a dashboard button:
+
+```yaml
+action: toybox_town.add_points
+data:
+  amount: 5
+  child: Lily          # optional, kept on the sensor for your records
+  reason: Tidied up    # optional
+```
+
+The sensor holds every point ever given (it only goes up and survives
+restarts). The game watches it and turns each increase into stars, so points
+given while a tablet is offline arrive when it reconnects. Kids spend stars in
+the game on outfits and toys; that works offline too.
+
+A tablet only counts points added after it first connects, so a new or reset
+tablet doesn't get the whole history at once. The Grown-ups screen also has
++1 / +5 / −1 buttons.
+
+Each call also fires `toybox_town_points_added` with `{amount, child, reason,
+total}`, if you want an automation to say "well done!" too.
+
+Prefer your own helper? Set the points entity in the Grown-ups screen to any
+`input_number` or `counter` you raise instead.
+
+## Events from the house (optional)
+
+Automations can also send the game a `toybox_town` event (needs an admin token,
+see above):
+
+| Event data | What the game does |
+| --- | --- |
+| `{reaction: night}` / `{reaction: day}` | The windows and rooms go dark or light |
+| `{reaction: visitor, who: Grandma}` | A "Knock knock!" banner |
+| `{reaction: celebrate}` | A big "Hooray!" |
+| `{reaction: points, add: 5}` | 5 stars right away (only if the tablet is connected at that moment) |
+| `{reaction: toy, toy: radio, on: true}` | Switches a toy in the game (radio, lamp, tv, tub, fridge, toaster) |
+
+In an automation or script (YAML mode):
+
+```yaml
+- event: toybox_town
+  event_data:
+    reaction: night
+```

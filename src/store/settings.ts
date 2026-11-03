@@ -9,7 +9,10 @@ export interface Settings {
   haUrl: string;
   /** Long-lived access token. Stays on this device only. The game only reads with it. */
   haToken: string;
-  /** An input_number or counter a grown-up raises to give the kids stars, e.g. input_number.toybox_points. */
+  /**
+   * Where the kids' points come from: the Toybox Town integration's sensor
+   * (raised by the toybox_town.add_points action), or any input_number or counter.
+   */
   pointsEntity: string;
   /** The real light (or light group) each game room mirrors. */
   roomLights: Partial<Record<RoomId, string>>;
@@ -24,7 +27,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   haUrl: '',
   haToken: '',
-  pointsEntity: '',
+  pointsEntity: 'sensor.toybox_town_points',
   roomLights: {},
   vacuumEntity: '',
   musicEntities: [],
