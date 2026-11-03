@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 
 import { useSettings } from '@/store/settings';
-import { useSyncQueue } from '@/store/syncQueue';
+import { useWallet } from '@/store/wallet';
+import { useWorld } from '@/store/world';
 import { applyConnectionSettings, syncManager } from '@/sync';
 import { watchNetwork } from '@/sync/network';
 
-/** Starts syncing once saves and settings have loaded, and follows the network. Mount once, at the root. */
+const stores = [useSettings, useWallet, useWorld];
+
+/** Starts listening once saves and settings have loaded, and follows the network. Mount once, at the root. */
 export function useSync(): void {
   const simulateOffline = useSettings((s) => s.simulateOffline);
 
@@ -14,13 +17,13 @@ export function useSync(): void {
     let cancelled = false;
     const begin = () => {
       if (cancelled || stop) return;
-      if (!useSyncQueue.persist.hasHydrated() || !useSettings.persist.hasHydrated()) return;
-      // Wait for both so nothing queued last time is lost and the right house is used.
+      if (!stores.every((store) => store.persist.hasHydrated())) return;
+      // Wait for the saves, so new stars are counted against the saved total and the right house is used.
       applyConnectionSettings();
       stop = syncManager.start();
     };
     begin();
-    const unsubs = [useSyncQueue.persist.onFinishHydration(begin), useSettings.persist.onFinishHydration(begin)];
+    const unsubs = stores.map((store) => store.persist.onFinishHydration(begin));
     return () => {
       cancelled = true;
       unsubs.forEach((u) => u());

@@ -1,15 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import type { RoomId } from '@/play/catalog';
 import { persistStorage } from '@/store/storage';
 
 export interface Settings {
-  /** Home Assistant address, e.g. http://homeassistant.local:8123. Used from step 3. */
+  /** Home Assistant address, e.g. http://homeassistant.local:8123. */
   haUrl: string;
-  /** Long-lived access token. Stays on this device only. Used from step 3. */
+  /** Long-lived access token. Stays on this device only. The game only reads with it. */
   haToken: string;
-  /** The real light the toy lamp turns on and off, e.g. light.play_room. Empty = just send an event. */
-  lampEntity: string;
+  /** An input_number or counter a grown-up raises to give the kids stars, e.g. input_number.toybox_points. */
+  pointsEntity: string;
+  /** The real light (or light group) each game room mirrors. */
+  roomLights: Partial<Record<RoomId, string>>;
+  /** The robot vacuum that cleans in the game when it cleans for real. */
+  vacuumEntity: string;
+  /** Music players that make the characters dance. */
+  musicEntities: string[];
   /** Grown-ups switch to test offline play without unplugging anything. */
   simulateOffline: boolean;
 }
@@ -17,7 +24,10 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   haUrl: '',
   haToken: '',
-  lampEntity: '',
+  pointsEntity: '',
+  roomLights: {},
+  vacuumEntity: '',
+  musicEntities: [],
   simulateOffline: false,
 };
 
@@ -33,9 +43,13 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'toybox.settings',
-      version: 1,
+      version: 2,
       storage: persistStorage,
-      migrate: (persisted) => ({ ...DEFAULT_SETTINGS, ...(persisted as Partial<Settings>) }),
+      migrate: (persisted) => {
+        // Version 1 had a lampEntity the game switched; the game no longer controls anything.
+        const { lampEntity: _dropped, ...rest } = (persisted ?? {}) as Partial<Settings> & { lampEntity?: string };
+        return { ...DEFAULT_SETTINGS, ...rest };
+      },
     },
   ),
 );

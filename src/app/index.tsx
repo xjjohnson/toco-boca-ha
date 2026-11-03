@@ -21,7 +21,6 @@ import {
   type RoomSize,
 } from '@/play/scene';
 import { useWorld } from '@/store/world';
-import { tellCharacterMoved, tellDressed, tellToy } from '@/sync';
 
 export default function Playroom() {
   const world = useWorld();
@@ -57,7 +56,6 @@ export default function Playroom() {
     const thing = world.things[id];
     const on = !thing.on;
     world.setThingOn(id, on);
-    tellToy(thing, on);
   };
 
   const walkTo = (to: RoomId) => world.goTo(to);
@@ -131,7 +129,6 @@ export default function Playroom() {
                     if (!drop) return null;
                     if (drop.through) {
                       world.moveCharacter(c.id, drop.spot.x, drop.spot.y, drop.through);
-                      tellCharacterMoved(c.id, drop.through);
                       walkTo(drop.through);
                       return null;
                     }
@@ -151,21 +148,7 @@ export default function Playroom() {
 
   const door = room.door;
   const dressingWho = dressing ? world.characters[dressing] : null;
-  const outfitBefore = useRef<string | null>(null);
-
-  const openWardrobeFor = dressing;
-  useEffect(() => {
-    if (openWardrobeFor) outfitBefore.current = JSON.stringify(world.characters[openWardrobeFor].outfit);
-    // Only when the wardrobe opens, not on every outfit change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openWardrobeFor]);
-
-  const closeWardrobe = () => {
-    if (dressingWho && JSON.stringify(dressingWho.outfit) !== outfitBefore.current) {
-      tellDressed(dressingWho.id, dressingWho.outfit);
-    }
-    setDressing(null);
-  };
+  const closeWardrobe = () => setDressing(null);
 
   return (
     <View style={styles.room} onLayout={onLayout}>

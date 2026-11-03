@@ -1,7 +1,7 @@
 import type { HaEvent } from '@/ha/types';
+import type { EntityState } from '@/ha/types';
 import {
-  commandFor,
-  statesFromEntityEvent,
+  applyEntityEvent,
   WebSocketTransport,
   websocketUrl,
   type SocketLike,
@@ -16,7 +16,7 @@ class FakeSocket implements SocketLike {
   onmessage: SocketLike['onmessage'] = null;
   onclose: SocketLike['onclose'] = null;
   onerror: SocketLike['onerror'] = null;
-  constructor(readonly url: string, private readonly token = 'good', private readonly failService = false) {
+  constructor(readonly url: string, private readonly token = 'good') {
     setTimeout(() => this.reply({ type: 'auth_required' }), 0);
   }
   reply(msg: Record<string, unknown>) {
@@ -27,8 +27,9 @@ class FakeSocket implements SocketLike {
     this.sent.push(msg);
     if (msg.type === 'auth') this.reply(msg.access_token === this.token ? { type: 'auth_ok' } : { type: 'auth_invalid', message: 'Invalid access token' });
     else if (msg.type === 'ping') this.reply({ id: msg.id, type: 'pong' });
-    else if (msg.type === 'call_service' && this.failService) this.reply({ id: msg.id, type: 'result', success: false, error: { code: 'not_found', message: 'Service not found' } });
-    else this.reply({ id: msg.id, type: 'result', success: true, result: null });
+    else if (msg.type === 'get_states') {
+      this.reply({ id: msg.id, type: 'result', success: true, result: [{ entity_id: 'light.kids', state: 'on', attributes: { friendly_name: 'Kids' } }] });
+    } else this.reply({ id: msg.id, type: 'result', success: true, result: null });
     if (msg.type === 'subscribe_entities') {
       this.reply({ id: msg.id, type: 'event', event: { a: { 'light.play_room': { s: 'off', a: {} } } } });
     }
@@ -38,13 +39,13 @@ class FakeSocket implements SocketLike {
   }
 }
 
-function make(opts: { token?: string; failService?: boolean } = {}) {
+function make(opts: { token?: string } = {}) {
   let socket!: FakeSocket;
   const t = new WebSocketTransport({
     url: 'https://home.example.com/',
     token: opts.token ?? 'good',
     entities: () => ['light.play_room'],
-    createSocket: (url) => (socket = new FakeSocket(url, 'good', opts.failService)),
+    createSocket: (url) => (socket = new FakeSocket(url, 'good')),
   });
   const events: HaEvent[] = [];
   t.onEvent((e) => events.push(e));
@@ -58,21 +59,20 @@ describe('websocket helpers', () => {
     expect(websocketUrl('homeassistant.local:8123')).toBe('ws://homeassistant.local:8123/api/websocket');
   });
 
-  it('reads states from subscribe_entities messages', () => {
-    expect(statesFromEntityEvent({ a: { 'light.a': { s: 'on' } } })).toEqual({ 'light.a': 'on' });
-    expect(statesFromEntityEvent({ c: { 'light.a': { '+': { s: 'off', lc: 1 } } } })).toEqual({ 'light.a': 'off' });
-    expect(statesFromEntityEvent({ c: { 'light.a': { '+': { a: { brightness: 3 } } } } })).toEqual({});
-  });
-
-  it('turns actions into commands', () => {
-    expect(commandFor({ kind: 'callService', domain: 'light', service: 'turn_on', data: { entity_id: 'light.a', brightness: 9 } })).toEqual({
-      type: 'call_service',
-      domain: 'light',
-      service: 'turn_on',
-      service_data: { brightness: 9 },
-      target: { entity_id: 'light.a' },
-    });
-    expect(commandFor({ kind: 'fireEvent', eventType: 'x', data: { a: 1 } })).toEqual({ type: 'fire_event', event_type: 'x', event_data: { a: 1 } });
+  it('keeps full state and attributes from subscribe_entities messages', () => {
+    const known = new Map<string, EntityState>();
+    expect(applyEntityEvent(known, { a: { 'light.a': { s: 'on', a: { rgb_color: [255, 0, 0], brightness: 9 } } } })).toEqual([
+      { entity_id: 'light.a', state: 'on', attributes: { rgb_color: [255, 0, 0], brightness: 9 } },
+    ]);
+    // A change carries only what changed; the rest is remembered.
+    expect(applyEntityEvent(known, { c: { 'light.a': { '+': { a: { rgb_color: [0, 0, 255] } } } } })).toEqual([
+      { entity_id: 'light.a', state: 'on', attributes: { rgb_color: [0, 0, 255], brightness: 9 } },
+    ]);
+    expect(applyEntityEvent(known, { c: { 'light.a': { '+': { s: 'off' }, '-': { a: ['rgb_color', 'brightness'] } } } })).toEqual([
+      { entity_id: 'light.a', state: 'off', attributes: {} },
+    ]);
+    applyEntityEvent(known, { r: ['light.a'] });
+    expect(known.size).toBe(0);
   });
 });
 
@@ -84,7 +84,7 @@ describe('WebSocketTransport', () => {
     expect(socket().url).toBe('wss://home.example.com/api/websocket');
     const types = socket().sent.map((m) => m.type);
     expect(types).toEqual(['auth', 'subscribe_events', 'subscribe_entities']);
-    expect(events).toEqual([{ eventType: 'state_changed', data: { entity_id: 'light.play_room', state: 'off' } }]);
+    expect(events).toEqual([{ eventType: 'state_changed', data: { entity_id: 'light.play_room', state: 'off', attributes: {} } }]);
     t.disconnect();
   });
 
@@ -97,22 +97,26 @@ describe('WebSocketTransport', () => {
     socket().reply({ id: ent.id, type: 'event', event: { c: { 'light.play_room': { '+': { s: 'on' } } } } });
     expect(events.slice(1)).toEqual([
       { eventType: 'toybox_town', data: { reaction: 'night' } },
-      { eventType: 'state_changed', data: { entity_id: 'light.play_room', state: 'on' } },
+      { eventType: 'state_changed', data: { entity_id: 'light.play_room', state: 'on', attributes: {} } },
     ]);
     t.disconnect();
   });
 
-  it('sends service calls and surfaces Home Assistant errors', async () => {
-    const ok = make();
-    await ok.t.connect();
-    await ok.t.send({ kind: 'callService', domain: 'light', service: 'turn_on', data: { entity_id: 'light.play_room' } });
-    expect(ok.socket().sent.at(-1)).toMatchObject({ type: 'call_service', target: { entity_id: 'light.play_room' } });
-    ok.t.disconnect();
+  it('lists entities for the Grown-ups pickers', async () => {
+    const { t } = make();
+    await t.connect();
+    expect(await t.listEntities()).toEqual([{ entity_id: 'light.kids', state: 'on', attributes: { friendly_name: 'Kids' } }]);
+    t.disconnect();
+  });
 
-    const bad = make({ failService: true });
-    await bad.t.connect();
-    await expect(bad.t.send({ kind: 'callService', domain: 'light', service: 'nope' })).rejects.toThrow('Service not found');
-    bad.t.disconnect();
+  it('only ever sends read-only commands', async () => {
+    const { t, socket } = make();
+    await t.connect();
+    await t.listEntities();
+    const allowed = new Set(['auth', 'subscribe_events', 'subscribe_entities', 'get_states', 'ping']);
+    expect(socket().sent.map((m) => m.type).filter((type) => !allowed.has(type as string))).toEqual([]);
+    expect('send' in t).toBe(false);
+    t.disconnect();
   });
 
   it('reports a bad token and stays disconnected', async () => {
@@ -121,11 +125,6 @@ describe('WebSocketTransport', () => {
     expect(t.getStatus()).toBe('disconnected');
     expect(t.lastError).toMatch(/refused the token/);
     expect(socket().closed).toBe(true);
-  });
-
-  it('refuses to send while disconnected, so the queue keeps the action', async () => {
-    const { t } = make();
-    await expect(t.send({ kind: 'fireEvent', eventType: 'x' })).rejects.toThrow();
   });
 
   it('goes disconnected when the socket closes', async () => {

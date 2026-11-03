@@ -1,13 +1,8 @@
 import { GAME_EVENT, type GameReaction } from '@/ha/inbound';
 import { StubTransport } from '@/ha/stubTransport';
-import type { OutboundAction } from '@/ha/types';
-import { enqueue, type QueuedAction } from '@/sync/queue';
-import { SyncManager } from '@/sync/syncManager';
-
-const action = (n: number): OutboundAction => ({ kind: 'fireEvent', eventType: 'test', data: { n } });
+import { backoffMs, SyncManager } from '@/sync/syncManager';
 
 function setup() {
-  let items: QueuedAction[] = [];
   let now = 1000;
   const timers: { fn: () => void; at: number }[] = [];
   const reactions: GameReaction[] = [];
@@ -15,10 +10,14 @@ function setup() {
   const transport = new StubTransport();
   const manager = new SyncManager({
     transport,
-    queue: { read: () => items, write: (q) => (items = q) },
     onReaction: (r) => reactions.push(r),
+    toReaction: (e) =>
+      e.eventType === GAME_EVENT
+        ? { kind: 'setTimeOfDay', value: 'night' }
+        : e.data.entity_id === 'input_number.points'
+          ? { kind: 'pointsTotal', total: Number(e.data.state) }
+          : null,
     onConnection: (s) => Object.assign(connection, s),
-    now: () => now,
     setTimer: (fn, ms) => {
       const t = { fn, at: now + ms };
       timers.push(t);
@@ -37,11 +36,7 @@ function setup() {
     manager,
     reactions,
     connection,
-    queue: () => items,
-    add: (a: OutboundAction) => {
-      items = enqueue(items, a, now);
-      manager.notifyQueued();
-    },
+    timers,
     /** Moves the clock forward and runs any timers that came due. */
     advance: async (ms: number) => {
       now += ms;
@@ -56,51 +51,11 @@ function setup() {
 }
 
 describe('SyncManager', () => {
-  it('connects on start and sends queued actions right away', async () => {
+  it('connects once the network is up', async () => {
     const t = setup();
     t.start();
     await t.settle();
     expect(t.connection).toMatchObject({ online: true, ha: 'connected' });
-    t.add(action(1));
-    await t.settle();
-    expect(t.transport.received).toEqual([action(1)]);
-    expect(t.queue()).toEqual([]);
-  });
-
-  it('holds actions while offline and sends them in order when back online', async () => {
-    const t = setup();
-    t.start();
-    await t.settle();
-    t.manager.setOnline(false);
-    t.add(action(1));
-    t.add(action(2));
-    await t.settle();
-    expect(t.transport.received).toEqual([]);
-    expect(t.queue()).toHaveLength(2);
-    expect(t.connection.online).toBe(false);
-
-    t.manager.setOnline(true);
-    await t.settle();
-    expect(t.transport.received).toEqual([action(1), action(2)]);
-    expect(t.queue()).toEqual([]);
-  });
-
-  it('keeps retrying while the house is unreachable, then catches up', async () => {
-    const t = setup();
-    t.transport.setReachable(false);
-    t.start();
-    await t.settle();
-    t.add(action(1));
-    await t.settle();
-    expect(t.connection.ha).toBe('disconnected');
-    await t.advance(1000);
-    await t.advance(2000);
-    expect(t.transport.received).toEqual([]);
-
-    t.transport.reachable = true;
-    await t.advance(60_000);
-    expect(t.connection.ha).toBe('connected');
-    expect(t.transport.received).toEqual([action(1)]);
   });
 
   it('turns house events into game reactions and ignores the rest', async () => {
@@ -112,16 +67,40 @@ describe('SyncManager', () => {
     expect(t.reactions).toEqual([{ kind: 'setTimeOfDay', value: 'night' }]);
   });
 
-  it('sends nothing until the network has reported online', async () => {
+  it('hears what changed while it was away when it reconnects', async () => {
     const t = setup();
-    t.manager.start();
-    t.add(action(1));
+    t.start();
     await t.settle();
-    expect(t.transport.received).toEqual([]);
-    expect(t.connection.online).toBe(false);
+    t.manager.setOnline(false);
+    t.transport.setEntity('input_number.points', '7');
+    expect(t.reactions).toEqual([]);
     t.manager.setOnline(true);
     await t.settle();
-    expect(t.transport.received).toEqual([action(1)]);
+    expect(t.reactions).toEqual([{ kind: 'pointsTotal', total: 7 }]);
+  });
+
+  it('keeps retrying while the house is unreachable, waiting longer each time', async () => {
+    const t = setup();
+    t.transport.setReachable(false);
+    t.start();
+    await t.settle();
+    expect(t.connection.ha).toBe('disconnected');
+    expect(t.timers).toHaveLength(1);
+    await t.advance(1000);
+    await t.advance(2000);
+    expect(t.connection.ha).toBe('disconnected');
+
+    t.transport.reachable = true;
+    await t.advance(60_000);
+    expect(t.connection.ha).toBe('connected');
+  });
+
+  it('stays quiet until the network has reported online', async () => {
+    const t = setup();
+    t.manager.start();
+    await t.settle();
+    expect(t.transport.getStatus()).toBe('disconnected');
+    expect(t.connection.online).toBe(false);
   });
 
   it('stops cleanly', async () => {
@@ -131,21 +110,21 @@ describe('SyncManager', () => {
     stop();
     expect(t.transport.getStatus()).toBe('disconnected');
   });
-});
 
-describe('SyncManager.setTransport', () => {
-  it('moves the queue over to the new connection', async () => {
+  it('moves to a new connection', async () => {
     const t = setup();
     t.start();
     await t.settle();
-    t.manager.setOnline(false);
-    t.add(action(1));
     const next = new StubTransport();
     t.manager.setTransport(next);
-    expect(t.transport.getStatus()).toBe('disconnected');
-    t.manager.setOnline(true);
     await t.settle();
-    expect(next.received).toEqual([action(1)]);
-    expect(t.transport.received).toEqual([]);
+    expect(t.transport.getStatus()).toBe('disconnected');
+    expect(next.getStatus()).toBe('connected');
+  });
+});
+
+describe('backoffMs', () => {
+  it('doubles up to a minute', () => {
+    expect([1, 2, 3, 10].map(backoffMs)).toEqual([1000, 2000, 4000, 60_000]);
   });
 });

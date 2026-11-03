@@ -7,8 +7,7 @@ describe('reduceReaction', () => {
     expect(reduceReaction({ ...NEW_WORLD, celebrations: 2 }, { kind: 'celebrate' })).toEqual({ celebrations: 3 });
   });
 
-  it('switches the toy lamp and other toys', () => {
-    expect(reduceReaction(NEW_WORLD, { kind: 'setLamp', on: true }).things?.lamp.on).toBe(true);
+  it('switches toys the house names', () => {
     expect(reduceReaction(NEW_WORLD, { kind: 'setToy', id: 'radio', on: true }).things?.radio.on).toBe(true);
   });
 

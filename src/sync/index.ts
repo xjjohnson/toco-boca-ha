@@ -1,12 +1,14 @@
 import { Platform } from 'react-native';
 
-import { reactionFor } from '@/ha/inbound';
+import { reactionFor, type GameReaction, type InboundContext } from '@/ha/inbound';
 import { StubTransport } from '@/ha/stubTransport';
-import type { HaTransport, OutboundAction } from '@/ha/types';
+import type { HaTransport } from '@/ha/types';
 import { WebSocketTransport } from '@/ha/websocketTransport';
+import { ROOMS, type RoomId } from '@/play/catalog';
 import { useConnection } from '@/store/connection';
+import { useHouse } from '@/store/house';
 import { useSettings, type Settings } from '@/store/settings';
-import { useSyncQueue } from '@/store/syncQueue';
+import { useWallet } from '@/store/wallet';
 import { useWorld } from '@/store/world';
 import { SyncManager } from '@/sync/syncManager';
 
@@ -26,25 +28,67 @@ export function haAddress(settings: Pick<Settings, 'haUrl'>): string {
   return '';
 }
 
+/** Every entity the game listens to. */
+export function followedEntities(settings: Settings): string[] {
+  const ids = [
+    settings.pointsEntity,
+    settings.vacuumEntity,
+    ...Object.values(settings.roomLights),
+    ...settings.musicEntities,
+  ];
+  return [...new Set(ids.map((id) => (id ?? '').trim()).filter(Boolean))];
+}
+
+/** Stand-in entities the pretend house uses for anything not set up yet. */
+export const PRETEND = {
+  points: 'input_number.pretend_points',
+  vacuum: 'vacuum.pretend_robot',
+  music: 'media_player.pretend_speaker',
+  light: (room: string) => `light.pretend_${room}`,
+};
+
+/** Which house entities mean what. The pretend house fills in any left blank. */
+export function inboundContext(settings: Settings, pretend = false): InboundContext {
+  const trim = (id: string | undefined) => (id ?? '').trim();
+  const or = (id: string | undefined, stand: string) => trim(id) || (pretend ? stand : '');
+  const music = settings.musicEntities.map(trim).filter(Boolean);
+  return {
+    pointsEntity: or(settings.pointsEntity, PRETEND.points),
+    vacuumEntity: or(settings.vacuumEntity, PRETEND.vacuum),
+    roomLights: Object.fromEntries(
+      Object.keys(ROOMS).map((room) => [room, or(settings.roomLights[room as RoomId], PRETEND.light(room))]),
+    ),
+    musicEntities: music.length || !pretend ? music : [PRETEND.music],
+  };
+}
+
+/** Sends each house reaction to the part of the game it belongs to. */
+export function applyReaction(reaction: GameReaction): void {
+  useWorld.getState().applyReaction(reaction);
+  useWallet.getState().applyReaction(reaction);
+  useHouse.getState().applyReaction(reaction);
+}
+
 function transportFor(settings: Settings): HaTransport {
   const url = haAddress(settings);
   if (!url || !settings.haToken.trim()) return stubTransport;
   return new WebSocketTransport({
     url,
     token: settings.haToken.trim(),
-    entities: () => [useSettings.getState().lampEntity.trim()],
+    entities: () => followedEntities(useSettings.getState()),
   });
 }
 
-export const syncManager = new SyncManager({
+export const syncManager: SyncManager = new SyncManager({
   transport: stubTransport,
-  queue: {
-    read: () => useSyncQueue.getState().items,
-    write: (items) => useSyncQueue.getState().replace(items),
+  toReaction: (event): GameReaction | null =>
+    reactionFor(event, inboundContext(useSettings.getState(), syncManager.getTransport() === stubTransport)),
+  onReaction: applyReaction,
+  onConnection: (state) => {
+    useConnection.setState(state);
+    // Out of reach: stop mirroring lights, music and the vacuum until the house is back.
+    if (state.ha === 'disconnected') useHouse.getState().clear();
   },
-  toReaction: (event) => reactionFor(event, { lampEntity: useSettings.getState().lampEntity.trim() }),
-  onReaction: (reaction) => useWorld.getState().applyReaction(reaction),
-  onConnection: (state) => useConnection.setState(state),
 });
 
 /** Points the game at the house described by the current settings. Call after they load or change. */
@@ -52,50 +96,4 @@ export function applyConnectionSettings(): void {
   const transport = transportFor(useSettings.getState());
   syncManager.setTransport(transport);
   useConnection.setState({ transportName: transport.name, ha: transport.getStatus() });
-}
-
-/**
- * Tells the house about something that happened in the game. Works offline:
- * it's saved and sent when the connection comes back. Pass a coalesceKey
- * when only the latest of a kind matters (like a lamp's on/off state).
- */
-export function tellHome(action: OutboundAction, coalesceKey?: string): void {
-  useSyncQueue.getState().add(action, coalesceKey);
-  syncManager.notifyQueued();
-}
-
-/** The game-to-house event every toy and character action is sent as. */
-export const ACTION_EVENT = 'toybox_town_action';
-
-/**
- * A toy was switched on or off. The lamp drives the real light chosen in the
- * Grown-ups screen when there is one; everything else (and the lamp with no
- * light set) fires `toybox_town_action` with { toy, id, room, on } for
- * automations to pick up. Only the newest state of each toy matters, so taps
- * while offline collapse into one.
- */
-export function tellToy(toy: { id: string; kind: string; room: string }, on: boolean): void {
-  const entity = toy.id === 'lamp' ? useSettings.getState().lampEntity.trim() : '';
-  if (entity) {
-    const domain = entity.split('.')[0] || 'homeassistant';
-    tellHome(
-      { kind: 'callService', domain, service: on ? 'turn_on' : 'turn_off', data: { entity_id: entity } },
-      `toy:${toy.id}`,
-    );
-    return;
-  }
-  tellHome(
-    { kind: 'fireEvent', eventType: ACTION_EVENT, data: { toy: toy.kind, id: toy.id, room: toy.room, on } },
-    `toy:${toy.id}`,
-  );
-}
-
-/** A character walked into another room, e.g. so the house can turn on that room's light. */
-export function tellCharacterMoved(character: string, room: string): void {
-  tellHome({ kind: 'fireEvent', eventType: ACTION_EVENT, data: { character, room } }, `room:${character}`);
-}
-
-/** A character got changed into something new. */
-export function tellDressed(character: string, outfit: Record<string, string>): void {
-  tellHome({ kind: 'fireEvent', eventType: ACTION_EVENT, data: { character, outfit } }, `outfit:${character}`);
 }

@@ -98,10 +98,10 @@ export function reduceReaction(world: WorldSave, reaction: GameReaction): Partia
       return { visitor: reaction.who };
     case 'celebrate':
       return { celebrations: world.celebrations + 1 };
-    case 'setLamp':
-      return withThingOn(world, 'lamp', reaction.on);
     case 'setToy':
       return withThingOn(world, reaction.id, reaction.on);
+    default:
+      return {};
   }
 }
 

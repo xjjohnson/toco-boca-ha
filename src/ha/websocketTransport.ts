@@ -1,4 +1,4 @@
-import type { HaEvent, HaStatus, HaTransport, OutboundAction } from '@/ha/types';
+import type { EntityState, HaEvent, HaStatus, HaTransport } from '@/ha/types';
 
 /** The custom event an automation fires to poke the game. Kept here to avoid an import cycle. */
 const GAME_EVENT = 'toybox_town';
@@ -22,7 +22,7 @@ export interface WebSocketOptions {
   /** Home Assistant address, like https://example.ui.nabu.casa or http://192.168.1.5:8123. */
   url: string;
   token: string;
-  /** Entities whose on/off state the game follows, read on every connect. */
+  /** Entities the game follows (lights, the vacuum, music, points), read on every connect. */
   entities: () => string[];
   createSocket?: (url: string) => SocketLike;
   pingMs?: number;
@@ -35,43 +35,47 @@ export function websocketUrl(base: string): string {
   return `${withScheme.replace(/^http/i, 'ws')}/api/websocket`;
 }
 
-/** Pulls entity states out of a subscribe_entities message: {entity_id: state}. */
-export function statesFromEntityEvent(event: Json): Record<string, string> {
-  const out: Record<string, string> = {};
-  const added = (event.a ?? {}) as Record<string, { s?: unknown }>;
-  for (const [id, v] of Object.entries(added)) if (typeof v?.s === 'string') out[id] = v.s;
-  const changed = (event.c ?? {}) as Record<string, { '+'?: { s?: unknown } }>;
-  for (const [id, v] of Object.entries(changed)) {
-    const s = v?.['+']?.s;
-    if (typeof s === 'string') out[id] = s;
-  }
-  return out;
-}
+type Compact = { s?: unknown; a?: Record<string, unknown> };
 
-/** Turns a game action into a Home Assistant WebSocket command. */
-export function commandFor(action: OutboundAction): Json {
-  if (action.kind === 'fireEvent') {
-    return { type: 'fire_event', event_type: action.eventType, event_data: action.data ?? {} };
+/**
+ * Applies one subscribe_entities message to what we know, and returns the
+ * entities it touched with their full state and attributes. Messages are
+ * compact: `a` adds entities, `c` has changes (`+` new values, `-` removed
+ * attribute names), `r` removes entities.
+ */
+export function applyEntityEvent(known: Map<string, EntityState>, event: Json): EntityState[] {
+  const touched: EntityState[] = [];
+  const added = (event.a ?? {}) as Record<string, Compact>;
+  for (const [entity_id, v] of Object.entries(added)) {
+    if (typeof v?.s !== 'string') continue;
+    const next = { entity_id, state: v.s, attributes: { ...(v.a ?? {}) } };
+    known.set(entity_id, next);
+    touched.push(next);
   }
-  const { entity_id, ...serviceData } = action.data ?? {};
-  return {
-    type: 'call_service',
-    domain: action.domain,
-    service: action.service,
-    service_data: serviceData,
-    ...(entity_id ? { target: { entity_id } } : {}),
-  };
+  const changed = (event.c ?? {}) as Record<string, { '+'?: Compact; '-'?: { a?: string[] } }>;
+  for (const [entity_id, v] of Object.entries(changed)) {
+    const before = known.get(entity_id) ?? { entity_id, state: 'unknown', attributes: {} };
+    const plus = v?.['+'] ?? {};
+    const attributes = { ...before.attributes, ...(plus.a ?? {}) };
+    for (const gone of v?.['-']?.a ?? []) delete attributes[gone];
+    const next = { entity_id, state: typeof plus.s === 'string' ? plus.s : before.state, attributes };
+    known.set(entity_id, next);
+    touched.push(next);
+  }
+  for (const entity_id of (event.r ?? []) as string[]) known.delete(entity_id);
+  return touched;
 }
 
 /**
  * The real connection, over Home Assistant's WebSocket API
  * (https://developers.home-assistant.io/docs/api/websocket). It
  * authenticates with a long-lived token, follows the configured entities
- * with subscribe_entities, listens for the `toybox_town` event, and sends
- * game actions as service calls or events.
+ * with subscribe_entities, and listens for the `toybox_town` event. It is
+ * read-only: it only ever sends auth, subscribe, get_states and ping, never
+ * a service call or an event.
  *
  * Entity changes reach the game as HaEvents with eventType 'state_changed'
- * and data {entity_id, state}.
+ * and data {entity_id, state, attributes}.
  */
 export class WebSocketTransport implements HaTransport {
   readonly name = 'Home Assistant';
@@ -83,6 +87,7 @@ export class WebSocketTransport implements HaTransport {
   private nextId = 1;
   private pending = new Map<number, { resolve: (r: Json) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private eventSubs = new Map<number, (event: Json) => void>();
+  private entities = new Map<string, EntityState>();
   private eventListeners = new Set<(event: HaEvent) => void>();
   private statusListeners = new Set<(status: HaStatus) => void>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -173,9 +178,17 @@ export class WebSocketTransport implements HaTransport {
     this.drop();
   }
 
-  async send(action: OutboundAction): Promise<void> {
+  async listEntities(): Promise<EntityState[]> {
     if (this.status !== 'connected') throw new Error('Home Assistant is not connected');
-    await this.command(commandFor(action));
+    const reply = await this.command({ type: 'get_states' });
+    const list = Array.isArray(reply.result) ? (reply.result as Json[]) : [];
+    return list
+      .filter((e) => typeof e.entity_id === 'string')
+      .map((e) => ({
+        entity_id: e.entity_id as string,
+        state: String(e.state ?? ''),
+        attributes: (e.attributes ?? {}) as Json,
+      }));
   }
 
   onEvent(listener: (event: HaEvent) => void): () => void {
@@ -195,8 +208,8 @@ export class WebSocketTransport implements HaTransport {
     const entityIds = this.opts.entities().filter(Boolean);
     if (entityIds.length) {
       await this.subscription({ type: 'subscribe_entities', entity_ids: entityIds }, (event) => {
-        for (const [entity_id, state] of Object.entries(statesFromEntityEvent(event))) {
-          this.emit({ eventType: 'state_changed', data: { entity_id, state } });
+        for (const e of applyEntityEvent(this.entities, event)) {
+          this.emit({ eventType: 'state_changed', data: { ...e } });
         }
       });
     }
@@ -277,6 +290,7 @@ export class WebSocketTransport implements HaTransport {
     }
     this.pending.clear();
     this.eventSubs.clear();
+    this.entities.clear();
     this.setStatus('disconnected');
   }
 
