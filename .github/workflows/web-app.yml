@@ -1,0 +1,62 @@
+# Checks every pull request, and on each merge to main builds the web app for
+# Home Assistant and posts it on the "Latest web app" release as a zip to
+# unzip into Home Assistant's www folder. Run by hand from the Actions tab too.
+name: Web app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and tests
+        run: |
+          npm run typecheck
+          npm test -- --ci
+
+      - name: Build the web app for Home Assistant (/local/toybox-town)
+        run: npm run export:ha
+        env:
+          EXPO_NO_TELEMETRY: 1
+
+      - name: Zip it
+        run: |
+          cp dist/version.json version.json
+          (cd dist && zip -qr ../toybox-town-web.zip .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toybox-town-web
+          path: toybox-town-web.zip
+
+      - name: Post it on the "Latest web app" release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-web --yes --cleanup-tag || true
+          gh release create latest-web toybox-town-web.zip version.json \
+            --target "$GITHUB_SHA" \
+            --title "Latest web app" \
+            --notes "Build ${{ github.run_number }}, from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Unzip toybox-town-web.zip into your Home Assistant config folder at www/toybox-town/, then open /local/toybox-town/ on your Home Assistant address. See docs/home-assistant.md."
