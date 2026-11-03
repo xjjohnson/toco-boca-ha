@@ -51,7 +51,7 @@ function manifest(base) {
     name: APP_NAME,
     short_name: 'Toybox',
     description: 'A pretend-play toy house that plays along with your home.',
-    start_url: `${base}/`,
+    start_url: `${base}/index.html`,
     scope: `${base}/`,
     display: 'fullscreen',
     orientation: 'landscape',
