@@ -7,9 +7,9 @@ export function Lamp({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <Pressable
       onPress={onToggle}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: on }}
-      accessibilityLabel="Lamp"
+      role="switch"
+      aria-checked={on}
+      aria-label="Lamp"
       style={styles.hit}
     >
       {on && <View style={styles.glow} />}

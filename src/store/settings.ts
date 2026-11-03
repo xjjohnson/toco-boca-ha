@@ -8,6 +8,8 @@ export interface Settings {
   haUrl: string;
   /** Long-lived access token. Stays on this device only. Used from step 3. */
   haToken: string;
+  /** The real light the toy lamp turns on and off, e.g. light.play_room. Empty = just send an event. */
+  lampEntity: string;
   /** Grown-ups switch to test offline play without unplugging anything. */
   simulateOffline: boolean;
 }
@@ -15,6 +17,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   haUrl: '',
   haToken: '',
+  lampEntity: '',
   simulateOffline: false,
 };
 

@@ -8,7 +8,9 @@ import { GAME_EVENT } from '@/ha/inbound';
 import { useSettings } from '@/store/settings';
 import { useSyncQueue } from '@/store/syncQueue';
 import { useWorld } from '@/store/world';
-import { syncManager, transport } from '@/sync';
+import { WebSocketTransport } from '@/ha/websocketTransport';
+import { useConnection } from '@/store/connection';
+import { applyConnectionSettings, haAddress, stubTransport, syncManager } from '@/sync';
 
 function describe(action: OutboundAction): string {
   return action.kind === 'fireEvent'
@@ -31,7 +33,12 @@ export default function GrownUps() {
   const settings = useSettings();
   const queue = useSyncQueue();
   const resetWorld = useWorld((s) => s.reset);
-  const [houseUp, setHouseUp] = useState(transport.reachable);
+  const [houseUp, setHouseUp] = useState(stubTransport.reachable);
+  const transportName = useConnection((s) => s.transportName);
+  const active = syncManager.getTransport();
+  const usingStub = active === stubTransport;
+  const lastError = active instanceof WebSocketTransport ? active.lastError : null;
+  const autoAddress = haAddress({ haUrl: '' });
   const [, rerender] = useState(0);
 
   // The pretend house's inbox isn't a store; refresh it while this screen is open.
@@ -41,7 +48,7 @@ export default function GrownUps() {
   }, []);
 
   const setHouse = (up: boolean) => {
-    transport.setReachable(up);
+    stubTransport.setReachable(up);
     setHouseUp(up);
     if (up) void syncManager.connect();
   };
@@ -57,9 +64,11 @@ export default function GrownUps() {
             onValueChange={(v) => settings.update({ simulateOffline: v })}
           />
         </Row>
-        <Row label="Pretend house is reachable">
-          <Switch value={houseUp} onValueChange={setHouse} />
-        </Row>
+        {usingStub && (
+          <Row label="Pretend house is reachable">
+            <Switch value={houseUp} onValueChange={setHouse} />
+          </Row>
+        )}
       </Section>
 
       <Section title={`Waiting to send (${queue.items.length})`}>
@@ -82,19 +91,21 @@ export default function GrownUps() {
         </View>
       </Section>
 
+      {usingStub && (
+        <>
       <Section title="Pretend house: send an event to the game">
         <View style={styles.buttons}>
           {PRETEND_EVENTS.map((p) => (
-            <Button key={p.label} label={p.label} onPress={() => transport.emit(p.event)} />
+            <Button key={p.label} label={p.label} onPress={() => stubTransport.emit(p.event)} />
           ))}
         </View>
       </Section>
 
-      <Section title={`Pretend house: received (${transport.received.length})`}>
-        {transport.received.length === 0 ? (
+      <Section title={`Pretend house: received (${stubTransport.received.length})`}>
+        {stubTransport.received.length === 0 ? (
           <Text style={styles.muted}>Nothing yet. Tap the lamp in the playroom.</Text>
         ) : (
-          transport.received
+          stubTransport.received
             .slice(-8)
             .reverse()
             .map((a, i) => (
@@ -105,10 +116,15 @@ export default function GrownUps() {
         )}
       </Section>
 
-      <Section title="Home Assistant (connects in a later update)">
+        </>
+      )}
+
+      <Section title={`Home Assistant · using ${transportName || 'nothing yet'}`}>
+        {lastError && <Text style={styles.error}>{lastError}</Text>}
+        <Text style={styles.muted}>Address</Text>
         <TextInput
           style={styles.input}
-          placeholder="http://homeassistant.local:8123"
+          placeholder={autoAddress || 'https://your-home.ui.nabu.casa or http://192.168.1.5:8123'}
           value={settings.haUrl}
           onChangeText={(haUrl) => settings.update({ haUrl })}
           autoCapitalize="none"
@@ -123,7 +139,19 @@ export default function GrownUps() {
           autoCorrect={false}
           secureTextEntry
         />
-        <Text style={styles.muted}>Saved on this device only.</Text>
+        <Text style={styles.muted}>Light the toy lamp controls (entity id)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="light.play_room"
+          value={settings.lampEntity}
+          onChangeText={(lampEntity) => settings.update({ lampEntity })}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Text style={styles.muted}>
+          Saved on this device only. Leave the token empty to use the pretend house.
+        </Text>
+        <Button label="Connect" onPress={applyConnectionSettings} />
       </Section>
 
       <Section title="Saves">
@@ -172,6 +200,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   body: { fontSize: 17, color: colors.text, flexShrink: 1 },
   muted: { fontSize: 15, color: colors.textMuted },
+  error: { fontSize: 15, color: '#C62828', fontWeight: '700' },
   mono: { fontSize: 14, color: colors.text, fontFamily: 'monospace' },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   button: {

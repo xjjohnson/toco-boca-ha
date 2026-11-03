@@ -132,3 +132,20 @@ describe('SyncManager', () => {
     expect(t.transport.getStatus()).toBe('disconnected');
   });
 });
+
+describe('SyncManager.setTransport', () => {
+  it('moves the queue over to the new connection', async () => {
+    const t = setup();
+    t.start();
+    await t.settle();
+    t.manager.setOnline(false);
+    t.add(action(1));
+    const next = new StubTransport();
+    t.manager.setTransport(next);
+    expect(t.transport.getStatus()).toBe('disconnected');
+    t.manager.setOnline(true);
+    await t.settle();
+    expect(next.received).toEqual([action(1)]);
+    expect(t.transport.received).toEqual([]);
+  });
+});

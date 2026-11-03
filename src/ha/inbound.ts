@@ -9,7 +9,14 @@ export type TimeOfDay = 'day' | 'night';
 export type GameReaction =
   | { kind: 'setTimeOfDay'; value: TimeOfDay }
   | { kind: 'visitor'; who: string }
-  | { kind: 'celebrate' };
+  | { kind: 'celebrate' }
+  /** A real light the toy lamp mirrors was switched in the house. */
+  | { kind: 'setLamp'; on: boolean };
+
+export interface InboundContext {
+  /** The light entity the toy lamp mirrors, e.g. light.play_room. */
+  lampEntity?: string;
+}
 
 /**
  * Turns a Home Assistant event into a game reaction, or null if the game
@@ -19,7 +26,13 @@ export type GameReaction =
  *   event: toybox_town
  *   event_data: { reaction: night }
  */
-export function reactionFor(event: HaEvent): GameReaction | null {
+export function reactionFor(event: HaEvent, context: InboundContext = {}): GameReaction | null {
+  if (event.eventType === 'state_changed') {
+    const { entity_id, state } = event.data;
+    if (!context.lampEntity || entity_id !== context.lampEntity) return null;
+    if (state === 'on' || state === 'off') return { kind: 'setLamp', on: state === 'on' };
+    return null;
+  }
   if (event.eventType !== GAME_EVENT) return null;
   const { reaction, who } = event.data;
   switch (reaction) {

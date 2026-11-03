@@ -7,10 +7,7 @@ import { Lamp } from '@/components/Lamp';
 import { StatusPill } from '@/components/StatusPill';
 import { colors, radius, spacing } from '@/constants/theme';
 import { useWorld } from '@/store/world';
-import { tellHome } from '@/sync';
-
-/** The custom event the game fires so Home Assistant automations can react. */
-const ACTION_EVENT = 'toybox_town_action';
+import { tellLamp } from '@/sync';
 
 export default function Playroom() {
   const world = useWorld();
@@ -20,8 +17,7 @@ export default function Playroom() {
   const toggleLamp = () => {
     const on = !world.lampOn;
     world.setLamp(on);
-    // Only the newest lamp state matters, so repeated taps while offline collapse into one.
-    tellHome({ kind: 'fireEvent', eventType: ACTION_EVENT, data: { toy: 'lamp', on } }, 'lamp');
+    tellLamp(on);
   };
 
   return (

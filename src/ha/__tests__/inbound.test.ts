@@ -17,3 +17,19 @@ describe('reactionFor', () => {
     expect(reactionFor(ev({}))).toBeNull();
   });
 });
+
+describe('reactionFor with a lamp light', () => {
+  const ctx = { lampEntity: 'light.play_room' };
+  const state = (entity_id: string, s: string) => ({ eventType: 'state_changed', data: { entity_id, state: s } });
+
+  it('mirrors the chosen light onto the toy lamp', () => {
+    expect(reactionFor(state('light.play_room', 'on'), ctx)).toEqual({ kind: 'setLamp', on: true });
+    expect(reactionFor(state('light.play_room', 'off'), ctx)).toEqual({ kind: 'setLamp', on: false });
+  });
+
+  it('ignores other lights, unavailable states, and no lamp set', () => {
+    expect(reactionFor(state('light.kitchen', 'on'), ctx)).toBeNull();
+    expect(reactionFor(state('light.play_room', 'unavailable'), ctx)).toBeNull();
+    expect(reactionFor(state('light.play_room', 'on'))).toBeNull();
+  });
+});
