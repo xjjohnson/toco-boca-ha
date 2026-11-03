@@ -1,0 +1,17 @@
+name: Toybox Town web
+version: "1.0.0"
+slug: toybox_town_web
+description: Serves the Toybox Town game so tablets can open and install it
+url: https://github.com/xjjohnson/toco-boca-ha
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+webui: "http://[HOST]:[PORT:80]/"
+startup: application
+boot: auto
+ports:
+  80/tcp: 8099
+ports_description:
+  80/tcp: Toybox Town web app

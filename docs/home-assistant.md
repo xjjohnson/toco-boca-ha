@@ -19,6 +19,25 @@ changed (stars, lights, music) by itself.
 To update, replace the folder's contents with the new zip. Tablets pick up the
 new version the next time the game is opened while online.
 
+## Easier option: the Home Assistant add-on
+
+Instead of unzipping into `www`, you can install the game as an add-on that
+updates with one restart. It serves the game on its own port, so there is no
+`/local/...` address and no 403.
+
+1. Settings → Add-ons → Add-on Store → ⋮ → *Repositories*, add
+   `https://github.com/xjjohnson/toco-boca-ha`.
+2. Install *Toybox Town web*, turn on *Start on boot*, and start it.
+3. Press *Open Web UI* on the add-on page, or open `http://<your Home Assistant address>:8099/` on the tablet.
+4. In the Grown-ups screen, enter your Home Assistant address (for example
+   `http://192.168.1.231:8123`) and your access token. The address doesn't fill
+   itself in here, because the game is on a different port than Home Assistant.
+
+To update, restart the add-on: it downloads the newest build (the
+`toybox-town-addon-web.zip` on the Latest web app release) each time it
+starts, and keeps the last copy if it's offline. If Home Assistant is on
+https, the game must be on https too, or the browser blocks the connection.
+
 ## Put it on a tablet's home screen
 
 - **Android (Chrome):** open the address above, then menu → *Install app*.
