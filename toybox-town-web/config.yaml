@@ -8,6 +8,7 @@ arch:
   - amd64
   - armv7
 init: false
+webui: "http://[HOST]:[PORT:80]/"
 startup: application
 boot: auto
 ports:
