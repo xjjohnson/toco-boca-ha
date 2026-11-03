@@ -1,0 +1,23 @@
+# Tests the Toybox Town Home Assistant integration (custom_components/toybox_town)
+# against a real Home Assistant core.
+name: Home Assistant integration
+
+on:
+  push:
+    branches: [main]
+    paths: ['custom_components/**', 'tests/**', 'pytest.ini', '.github/workflows/integration.yml']
+  pull_request:
+    paths: ['custom_components/**', 'tests/**', 'pytest.ini', '.github/workflows/integration.yml']
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install pytest-homeassistant-custom-component==0.13.316
+      - run: python -m pytest -q

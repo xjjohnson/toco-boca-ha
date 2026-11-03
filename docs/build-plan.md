@@ -1,16 +1,16 @@
 # Build plan
 
-1. **Foundation** (this step): installable offline web app, saves on the device
-   (IndexedDB on the web, AsyncStorage in the native app), a saved queue that
-   sends game actions to Home Assistant when the connection comes back, and a
-   pretend Home Assistant (stub) behind the same interface the real one will use.
-2. **Play core**: rooms, characters, drag and drop, dress-up. Original art only.
-3. **Two-way Home Assistant**: a WebSocket transport in `src/ha/` replacing the
-   stub (`src/sync/index.ts`), using the URL and token from the Grown-ups screen.
-   House events become game reactions (`src/ha/inbound.ts`); game actions fire
-   `toybox_town_action`.
-4. **More content, parent settings, docs**, then the **native app with
-   over-the-air updates**.
+1. **Foundation** (done): installable offline web app, saves on the device
+   (IndexedDB on the web, AsyncStorage in the native app), and a pretend house
+   behind the same interface as the real one.
+2. **Listen-only Home Assistant** (done): the game reads the house and never
+   sends it commands.
+3. **Points** (done): the Toybox Town integration's `toybox_town.add_points`
+   action raises `sensor.toybox_town_points`; the game turns each increase into
+   stars, spent offline on outfits and toys.
+4. **House reactions** (done): room light colors, the robot vacuum, music.
+5. **Play core** (done): a zoomable two-story cutaway house with four rooms.
+6. **Next**: more rooms and toys, then the native app with over-the-air updates.
 
 ## Native app with over-the-air updates
 
